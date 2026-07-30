@@ -7,10 +7,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createSqliteG002StorageOperationPermit,
   requireSqliteG002StorageOperationPermit,
+  transferSqliteG002StorageOperationPermitToWriter,
   type SqliteG002StorageOperation,
   type SqliteG002StorageOperationExpectation,
   type SqliteG002StorageOperationPermitInput,
 } from "@/lib/db/sqlite-g002-operation-permit";
+import {
+  consumeSqliteCompatibilityScopeAnchorCurrentProof,
+  discardSqliteCompatibilityScopeAnchor,
+} from "@/lib/db/sqlite-compatibility-scope";
 import {
   cleanupSqliteG002OperationFixture,
   createFreshSqliteG002OperationFixture,
@@ -158,6 +163,37 @@ describe("G006C2A SQLite G002 storage-operation permit", () => {
     for (const value of Object.values(evidence)) {
       expect(value === null || typeof value !== "object" || Object.isFrozen(value)).toBe(true);
     }
+  });
+
+  it("transfers only frozen public evidence plus an opaque writer anchor and lets C2B terminally consume fresh facts", async () => {
+    const permit = createSqliteG002StorageOperationPermit(permitInput(fresh, "crawl_runs", null));
+    const transfer = transferSqliteG002StorageOperationPermitToWriter(permit, expectation(fresh, "crawl_runs", null));
+    expect(Object.isFrozen(transfer)).toBe(true);
+    expect(Object.keys(transfer)).toEqual(["evidence", "anchor"]);
+    expect(Object.getPrototypeOf(transfer.anchor)).toBeNull();
+    expect(Reflect.ownKeys(transfer.anchor)).toEqual([]);
+    expect(transfer.evidence).toEqual({
+      backend: "sqlite", lifecycle: "fresh", databasePath: fresh.databasePath,
+      tenantId: fresh.tenantId, storageWorkspaceId: fresh.storageWorkspaceId,
+      operationWorkspaceId: null, operation: "crawl_runs", authority: "storage-operation-scope-only",
+      grantsAuthentication: false, grantsAuthorization: false, grantsWorkerExecution: false, grantsProviderExecution: false,
+    });
+    await expect(consumeSqliteCompatibilityScopeAnchorCurrentProof(transfer.anchor, {
+      databasePath: fresh.databasePath, tenantId: fresh.tenantId, workspaceId: fresh.storageWorkspaceId,
+    })).resolves.toMatchObject({ lifecycle: "fresh", grantsAuthentication: false, grantsAuthorization: false, grantsProviderExecution: false });
+    expect(discardSqliteCompatibilityScopeAnchor(transfer.anchor)).toBe(false);
+  });
+
+  it("writer mismatch and ordinary consumption both discard the stored anchor", () => {
+    const mismatch = createSqliteG002StorageOperationPermit(permitInput(fresh));
+    expectCode(() => transferSqliteG002StorageOperationPermitToWriter(mismatch, {
+      ...expectation(fresh), operation: "crawl_runs",
+    }), "G006C2A_PERMIT_MISMATCH");
+    expectCode(() => requireSqliteG002StorageOperationPermit(mismatch, expectation(fresh)), "G006C2A_PERMIT_REQUIRED");
+
+    const ordinary = createSqliteG002StorageOperationPermit(permitInput(fresh));
+    requireSqliteG002StorageOperationPermit(ordinary, expectation(fresh));
+    expectCode(() => transferSqliteG002StorageOperationPermitToWriter(ordinary, expectation(fresh)), "G006C2A_PERMIT_REQUIRED");
   });
 
   it("mints a frozen fieldless null-prototype permit", () => {

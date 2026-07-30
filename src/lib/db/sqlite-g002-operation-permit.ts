@@ -1,8 +1,11 @@
 import { isProxy } from "node:util/types";
 
 import {
+  discardSqliteCompatibilityScopeAnchor,
+  mintSqliteCompatibilityScopeAnchor,
   requireFreshSqliteCompatibilityScope,
   requireSqliteCompatibilityScope,
+  type SqliteCompatibilityScopeAnchor,
   type SqliteCompatibilityBinding,
 } from "./sqlite-compatibility-scope";
 
@@ -75,9 +78,20 @@ export interface SqliteG002StorageOperationEvidence {
   readonly grantsProviderExecution: false;
 }
 
+/** Deep-only C2A-to-C2B handoff. The anchor has no observable state. */
+export interface SqliteG002StorageOperationWriterTransfer {
+  readonly evidence: SqliteG002StorageOperationEvidence;
+  readonly anchor: SqliteCompatibilityScopeAnchor;
+}
+
 type DataRecord = Readonly<Record<string, unknown>>;
 
-const permitStates = new WeakMap<object, SqliteG002StorageOperationEvidence>();
+interface PermitState {
+  readonly evidence: SqliteG002StorageOperationEvidence;
+  readonly anchor: SqliteCompatibilityScopeAnchor;
+}
+
+const permitStates = new WeakMap<object, PermitState>();
 
 const INPUT_KEYS = Object.freeze([
   "lifecycle",
@@ -221,6 +235,7 @@ export function createSqliteG002StorageOperationPermit(
   requireExactKeys(input, INPUT_KEYS, "input");
   const selectors = snapshotSelectors(input, "input");
 
+  let anchor: SqliteCompatibilityScopeAnchor | undefined;
   try {
     const expectation = {
       databasePath: selectors.databasePath,
@@ -232,12 +247,20 @@ export function createSqliteG002StorageOperationPermit(
     } else {
       requireSqliteCompatibilityScope(input.binding as SqliteCompatibilityBinding, expectation);
     }
+    anchor = mintSqliteCompatibilityScopeAnchor(input.binding as SqliteCompatibilityBinding, expectation);
   } catch {
+    if (anchor) discardSqliteCompatibilityScopeAnchor(anchor);
     throw new SqliteG002StorageOperationPermitError("G006C2A_STORAGE_SCOPE_MISMATCH");
   }
+  if (!anchor) throw new SqliteG002StorageOperationPermitError("G006C2A_STORAGE_SCOPE_MISMATCH");
 
   const permit = Object.freeze(Object.create(null)) as SqliteG002StorageOperationPermit;
-  permitStates.set(permit as object, storageEvidence(selectors));
+  try {
+    permitStates.set(permit as object, Object.freeze({ evidence: storageEvidence(selectors), anchor }));
+  } catch (error) {
+    discardSqliteCompatibilityScopeAnchor(anchor);
+    throw error;
+  }
   return permit;
 }
 
@@ -252,10 +275,21 @@ export function requireSqliteG002StorageOperationPermit(
   if (permit === null || typeof permit !== "object" || isProxy(permit)) {
     throw new SqliteG002StorageOperationPermitError("G006C2A_PERMIT_REQUIRED");
   }
-  const evidence = permitStates.get(permit as object);
-  if (!evidence) throw new SqliteG002StorageOperationPermitError("G006C2A_PERMIT_REQUIRED");
+  const state = permitStates.get(permit as object);
+  if (!state) throw new SqliteG002StorageOperationPermitError("G006C2A_PERMIT_REQUIRED");
   permitStates.delete(permit as object);
+  try {
+    assertExactPermitExpectation(state.evidence, expectationValue);
+    return state.evidence;
+  } finally {
+    discardSqliteCompatibilityScopeAnchor(state.anchor);
+  }
+}
 
+function assertExactPermitExpectation(
+  evidence: SqliteG002StorageOperationEvidence,
+  expectationValue: SqliteG002StorageOperationExpectation,
+): void {
   const expectation = readPlainDataRecord(expectationValue, "expectation");
   requireExactKeys(expectation, EXPECTATION_KEYS, "expectation");
   const selectors = snapshotSelectors(expectation, "expectation");
@@ -267,5 +301,27 @@ export function requireSqliteG002StorageOperationPermit(
       || selectors.operation !== evidence.operation) {
     throw new SqliteG002StorageOperationPermitError("G006C2A_PERMIT_MISMATCH");
   }
-  return evidence;
+}
+
+/**
+ * Burns a permit before expectation parsing and transfers the opaque C0 anchor
+ * only on an exact selector match. C2B owns terminal consume/discard in finally.
+ */
+export function transferSqliteG002StorageOperationPermitToWriter(
+  permit: SqliteG002StorageOperationPermit,
+  expectationValue: SqliteG002StorageOperationExpectation,
+): SqliteG002StorageOperationWriterTransfer {
+  if (permit === null || typeof permit !== "object" || isProxy(permit)) {
+    throw new SqliteG002StorageOperationPermitError("G006C2A_PERMIT_REQUIRED");
+  }
+  const state = permitStates.get(permit as object);
+  if (!state) throw new SqliteG002StorageOperationPermitError("G006C2A_PERMIT_REQUIRED");
+  permitStates.delete(permit as object);
+  try {
+    assertExactPermitExpectation(state.evidence, expectationValue);
+    return Object.freeze({ evidence: state.evidence, anchor: state.anchor });
+  } catch (error) {
+    discardSqliteCompatibilityScopeAnchor(state.anchor);
+    throw error;
+  }
 }

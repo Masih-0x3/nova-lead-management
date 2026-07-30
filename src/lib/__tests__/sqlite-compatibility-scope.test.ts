@@ -40,6 +40,9 @@ import {
 } from "@/lib/db/sqlite-g006b-pre-finalization";
 import { classifySqliteSchemaV1 } from "@/lib/db/sqlite-schema-coordinator";
 import {
+  consumeSqliteCompatibilityScopeAnchorCurrentProof,
+  discardSqliteCompatibilityScopeAnchor,
+  mintSqliteCompatibilityScopeAnchor,
   requireSqliteCompatibilityScope,
   verifyCompatibilityScope,
   type SqliteCompatibilityBinding,
@@ -440,6 +443,40 @@ describe("G006C0 SQLite compatibility storage scope", () => {
     },
     120_000,
   );
+
+  it("terminally consumes a fieldless upgraded anchor, replays the sealed proof, and cannot replay it", async () => {
+    const { replay } = await createCommittedFixture();
+    const binding = await verifyCompatibilityScope(upgradedInput(replay)) as SqliteCompatibilityBinding;
+    const anchor = mintSqliteCompatibilityScopeAnchor(binding, expectedScope(replay));
+    expect(Object.getPrototypeOf(anchor)).toBeNull();
+    expect(Object.isFrozen(anchor)).toBe(true);
+    expect(Reflect.ownKeys(anchor)).toEqual([]);
+    const before = replayObserver.calls;
+    await expect(consumeSqliteCompatibilityScopeAnchorCurrentProof(anchor, expectedScope(replay)))
+      .resolves.toMatchObject({ lifecycle: "upgraded", grantsAuthentication: false, grantsAuthorization: false, grantsProviderExecution: false });
+    expect(replayObserver.calls).toBe(before + 1);
+    await expect(consumeSqliteCompatibilityScopeAnchorCurrentProof(anchor, expectedScope(replay)))
+      .rejects.toMatchObject({ code: "G006C0_CAPABILITY_REQUIRED" });
+  }, 120_000);
+
+  it("deletes an anchor before hostile selector parsing and rejects copied, proxied, and cross-selector anchors", async () => {
+    const { replay } = await createCommittedFixture();
+    const binding = await verifyCompatibilityScope(upgradedInput(replay)) as SqliteCompatibilityBinding;
+    const anchor = mintSqliteCompatibilityScopeAnchor(binding, expectedScope(replay));
+    const hostile = expectedScope(replay) as unknown as Record<string, unknown>;
+    Object.defineProperty(hostile, "tenantId", { enumerable: true, get: () => TENANT_ID });
+    await expect(consumeSqliteCompatibilityScopeAnchorCurrentProof(anchor, hostile as unknown as SqliteCompatibilityScopeExpectation))
+      .rejects.toMatchObject({ code: "G006C0_INPUT_REJECTED" });
+    await expect(consumeSqliteCompatibilityScopeAnchorCurrentProof(anchor, expectedScope(replay)))
+      .rejects.toMatchObject({ code: "G006C0_CAPABILITY_REQUIRED" });
+    for (const candidate of [Object.create(null), { ...anchor }, new Proxy(anchor, {})]) {
+      await expect(consumeSqliteCompatibilityScopeAnchorCurrentProof(candidate as never, expectedScope(replay)))
+        .rejects.toMatchObject({ code: "G006C0_CAPABILITY_REQUIRED" });
+    }
+    const disposable = mintSqliteCompatibilityScopeAnchor(binding, expectedScope(replay));
+    expect(discardSqliteCompatibilityScopeAnchor(disposable)).toBe(true);
+    expect(discardSqliteCompatibilityScopeAnchor(disposable)).toBe(false);
+  }, 120_000);
 
   it("rejects malformed outer inputs, accessors, proxies, unknown discriminants, and non-replay lifecycle evidence", async () => {
     const { base } = await createCommittedFixture();

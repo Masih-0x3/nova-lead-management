@@ -244,3 +244,34 @@ The packet preserves all 318 implementation cards and leaves G-006C2 open for
 the serialized C2B/C writers and independent review. G009/G010/G013 and the
 accepted T012/T013 boundaries continue to own later interactive and worker
 authority.
+
+## Repair-4 C0 anchor and C2A writer-transfer validation
+
+Dispatch baseline: `b9fb91314bf5338127b0a6ea632579ec1371b988`.
+
+Repair-4 changes exactly these five paths:
+
+- `src/lib/db/sqlite-compatibility-scope.ts`
+- `src/lib/__tests__/sqlite-compatibility-scope.test.ts`
+- `src/lib/db/sqlite-g002-operation-permit.ts`
+- `src/lib/__tests__/sqlite-g002-operation-permit.test.ts`
+- `docs/validation/2026-07-30-g006c2a-sqlite-g002-operation-permit.md`
+
+C0 now provides a fieldless, exported-but-deep-only anchor type whose authority
+remains solely in its private `WeakMap`. It mints only from genuine binding and
+exact selectors. The upgraded anchor owns a deep-frozen replay snapshot already
+verified by successful G006B replay; it is never trusted from an unverified
+caller value. Terminal consume removes anchor state before selector parsing or
+async replay, repeats G006B against the sealed snapshot, and pins the result.
+Fresh anchors return only frozen carried C1 storage facts. No raw replay,
+manifest, artifact path, PII, callback, binding, or database handle is exposed.
+
+C2A keeps the existing public evidence keys unchanged and literal false grants.
+It deletes permit state before parsing expectations. Ordinary consumption always
+discards its anchor; writer transfer discards on mismatch and otherwise transfers
+only frozen `{ evidence, anchor }`, leaving later C2B to terminally consume or
+discard the anchor in a `finally` path.
+
+Local validation uses the existing `node_modules` junction: no install and no
+network. Final source tip belongs in the append-only ledger; this section makes
+no self-hash claim.

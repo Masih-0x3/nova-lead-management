@@ -68,6 +68,16 @@ export interface SqliteCompatibilityBinding {
   readonly [sqliteCompatibilityBindingBrand]: "sqlite-compatibility-binding";
 }
 
+declare const sqliteCompatibilityScopeAnchorBrand: unique symbol;
+
+/**
+ * Fieldless C0 storage anchor.  It is intentionally exported only from this
+ * deep module so C2A/C2B can carry it; all authority remains in a WeakMap.
+ */
+export interface SqliteCompatibilityScopeAnchor {
+  readonly [sqliteCompatibilityScopeAnchorBrand]: "sqlite-compatibility-scope-anchor";
+}
+
 export type CompatibilityScope = PostgresCompatibilityScope | SqliteCompatibilityBinding;
 
 export interface SqliteCompatibilityScopeExpectation {
@@ -134,6 +144,7 @@ export interface FreshSqliteCompatibilityStorageScope {
 interface BindingState {
   readonly databasePath: string;
   readonly scope: SqliteCompatibilityStorageScope;
+  readonly replay: SqliteG006bReplayInput;
 }
 
 interface FreshBindingState {
@@ -141,10 +152,17 @@ interface FreshBindingState {
   readonly scope: FreshSqliteCompatibilityStorageScope;
 }
 
+interface AnchorState {
+  readonly databasePath: string;
+  readonly scope: SqliteCompatibilityStorageScope | FreshSqliteCompatibilityStorageScope;
+  readonly replay?: SqliteG006bReplayInput;
+}
+
 type DataRecord = Readonly<Record<string, unknown>>;
 
 const bindingStates = new WeakMap<object, BindingState>();
 const freshBindingStates = new WeakMap<object, FreshBindingState>();
+const anchorStates = new WeakMap<object, AnchorState>();
 
 function rejectInput(detail: string): never {
   throw new SqliteCompatibilityScopeError("G006C0_INPUT_REJECTED", detail);
@@ -202,11 +220,15 @@ function snapshotUpgradedScope(replayValue: unknown): {
   readonly expectedPreparedHandoffId: string;
   readonly expectedCommittedHandoffId: string;
 } {
-  const replay = readPlainDataRecord(replayValue, "input.replay");
+  // Detach and deep-freeze the complete replay before G006B reaches an async
+  // boundary. It may originate with a caller, but is never trusted until the
+  // synchronous G006B replay below has successfully verified this snapshot.
+  const detachedReplay = snapshotFreshData(replayValue, "input.replay", { nodes: 0 }) as SqliteG006bReplayInput;
+  const replay = readPlainDataRecord(detachedReplay, "input.replay");
   if (replay.mode !== "replay") rejectInput("input.replay.mode must be replay");
   const manifest = readPlainDataRecord(replay.manifest, "input.replay.manifest");
   return Object.freeze({
-    replay: replayValue as SqliteG006bReplayInput,
+    replay: detachedReplay,
     databasePath: requireString(replay, "databasePath", "input.replay"),
     tenantId: requireString(manifest, "tenantId", "input.replay.manifest"),
     workspaceId: requireString(manifest, "workspaceId", "input.replay.manifest"),
@@ -396,7 +418,11 @@ export async function verifyCompatibilityScope(inputValue: CompatibilityScopeInp
     grantsProviderExecution: false,
   });
   const capability = Object.freeze(Object.create(null)) as SqliteCompatibilityBinding;
-  bindingStates.set(capability as object, Object.freeze({ databasePath: snapshot.databasePath, scope }));
+  bindingStates.set(capability as object, Object.freeze({
+    databasePath: snapshot.databasePath,
+    scope,
+    replay: snapshot.replay,
+  }));
   return capability;
 }
 
@@ -545,4 +571,87 @@ export function requireFreshSqliteCompatibilityScope(
     throw new SqliteCompatibilityScopeError("G006C0_SCOPE_MISMATCH");
   }
   return state.scope;
+}
+
+/**
+ * Mints a one-shot C0 anchor from a genuine C1/G006B binding and exact storage
+ * selectors. The anchor itself has no observable fields and never contains a
+ * database handle, raw replay, manifest, artifact path, PII, or callback.
+ */
+export function mintSqliteCompatibilityScopeAnchor(
+  binding: SqliteCompatibilityBinding,
+  expectationValue: SqliteCompatibilityScopeExpectation,
+): SqliteCompatibilityScopeAnchor {
+  if (binding === null || typeof binding !== "object" || isProxy(binding)) {
+    throw new SqliteCompatibilityScopeError("G006C0_CAPABILITY_REQUIRED");
+  }
+  const upgraded = bindingStates.get(binding as object);
+  const fresh = freshBindingStates.get(binding as object);
+  if (!upgraded && !fresh) throw new SqliteCompatibilityScopeError("G006C0_CAPABILITY_REQUIRED");
+
+  // These existing C0/C1 guards also descriptor-validate exact selectors.
+  const scope = upgraded
+    ? requireSqliteCompatibilityScope(binding, expectationValue)
+    : requireFreshSqliteCompatibilityScope(binding, expectationValue);
+  const anchor = Object.freeze(Object.create(null)) as SqliteCompatibilityScopeAnchor;
+  anchorStates.set(anchor as object, Object.freeze({
+    databasePath: upgraded?.databasePath ?? fresh!.databasePath,
+    scope,
+    ...(upgraded ? { replay: upgraded.replay } : {}),
+  }));
+  return anchor;
+}
+
+function consumeAnchorState(
+  anchor: SqliteCompatibilityScopeAnchor,
+): AnchorState {
+  if (anchor === null || typeof anchor !== "object" || isProxy(anchor)) {
+    throw new SqliteCompatibilityScopeError("G006C0_CAPABILITY_REQUIRED");
+  }
+  const state = anchorStates.get(anchor as object);
+  if (!state) throw new SqliteCompatibilityScopeError("G006C0_CAPABILITY_REQUIRED");
+  // Terminal ownership transfer happens before hostile selector parsing or any
+  // async replay boundary. Nothing can revive this anchor after this point.
+  anchorStates.delete(anchor as object);
+  return state;
+}
+
+/** Discards an unconsumed C0 anchor. It is idempotent and terminal. */
+export function discardSqliteCompatibilityScopeAnchor(
+  anchor: SqliteCompatibilityScopeAnchor,
+): boolean {
+  if (anchor === null || typeof anchor !== "object" || isProxy(anchor)) return false;
+  return anchorStates.delete(anchor as object);
+}
+
+/**
+ * Terminally consumes an anchor and returns current storage-only proof. Fresh
+ * anchors return the frozen carried C1 facts; upgraded anchors re-run G006B on
+ * the sealed, already-verified replay and require all immutable result pins.
+ */
+export async function consumeSqliteCompatibilityScopeAnchorCurrentProof(
+  anchor: SqliteCompatibilityScopeAnchor,
+  expectationValue: SqliteCompatibilityScopeExpectation,
+): Promise<SqliteCompatibilityStorageScope | FreshSqliteCompatibilityStorageScope> {
+  const state = consumeAnchorState(anchor);
+  const expectation = readPlainDataRecord(expectationValue, "expectation");
+  requireExactKeys(expectation, ["databasePath", "tenantId", "workspaceId"], "expectation");
+  const databasePath = requireString(expectation, "databasePath", "expectation");
+  const tenantId = requireString(expectation, "tenantId", "expectation");
+  const workspaceId = requireString(expectation, "workspaceId", "expectation");
+  if (databasePath !== state.databasePath
+      || tenantId !== state.scope.tenantId
+      || workspaceId !== state.scope.workspaceId) {
+    throw new SqliteCompatibilityScopeError("G006C0_SCOPE_MISMATCH");
+  }
+  if (!state.replay) return state.scope;
+
+  const result = snapshotVerifiedResult(await runSqliteG006bPreFinalization(state.replay));
+  const scope = state.scope as SqliteCompatibilityStorageScope;
+  if (result.preparedHandoffId !== scope.preparedHandoffId
+      || result.committedHandoffId !== scope.committedHandoffId
+      || result.bindingHash !== scope.canonicalBindingHash) {
+    throw new SqliteCompatibilityScopeError("G006C0_SCOPE_MISMATCH", "G006B current replay pins");
+  }
+  return scope;
 }
