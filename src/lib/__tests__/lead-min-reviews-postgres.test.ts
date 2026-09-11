@@ -79,7 +79,7 @@ describe.skipIf(!enabled)("minimum-review PostgreSQL bind regression", () => {
         tenantId,
         workspaceId: null,
         membershipId: randomUUID(),
-        role: "researcher",
+        role: "researcher" as const,
         roleBindingId: randomUUID(),
       };
       const read = async (minReviews: unknown) => {
