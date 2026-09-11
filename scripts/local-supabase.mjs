@@ -23,8 +23,9 @@ const DB_CONTAINER = "nova-local-db";
 const GATEWAY_URL = "http://127.0.0.1:54321";
 const DB_PORT = 5433;
 const DB_SUPER_URL = `postgresql://postgres:postgres@127.0.0.1:${DB_PORT}/postgres`;
-const ISSUER_ROLE = "nosite_worker_lease_issuer";
-const RESOLVER_ROLE = "nosite_worker_lease_resolver";
+// Canonical lease role names owned by scripts/seed-local-tenant.mjs.
+const CANONICAL_ISSUER_ROLE = "novatrade_worker_lease_issuer";
+const CANONICAL_RESOLVER_ROLE = "novatrade_worker_lease_resolver";
 
 const ADMIN_EMAIL = "admin@nova.local";
 const ADMIN_PASSWORD = "nova-local-admin-pw";
@@ -89,10 +90,12 @@ function ensureEnv() {
     NOSITE_ENCRYPTION_SECRET: randomBytes(24).toString("hex") + "0".repeat(8),
     WORKER_CRON_SECRET: `nova-local-cron-${randomBytes(16).toString("hex")}`,
     WORKER_ROUTE_TIMEOUT_MS: "45000",
-    TENANT_WORKER_LEASE_ISSUER_DATABASE_URL: `postgresql://${ISSUER_ROLE}:${env.NOVA_LOCAL_ISSUER_PW || "nova-lease-issuer-local"}@127.0.0.1:${DB_PORT}/postgres`,
-    TENANT_WORKER_LEASE_RESOLVER_DATABASE_URL: `postgresql://${RESOLVER_ROLE}:${env.NOVA_LOCAL_RESOLVER_PW || "nova-lease-resolver-local"}@127.0.0.1:${DB_PORT}/postgres`,
-    NOVA_LOCAL_ISSUER_PW: "nova-lease-issuer-local",
-    NOVA_LOCAL_RESOLVER_PW: "nova-lease-resolver-local",
+    TENANT_WORKER_LEASE_ISSUER_DATABASE_URL: `postgresql://${CANONICAL_ISSUER_ROLE}:${env.LOCAL_WORKER_LEASE_ISSUER_PASSWORD || "nova-lease-issuer-local"}@127.0.0.1:${DB_PORT}/postgres`,
+    TENANT_WORKER_LEASE_RESOLVER_DATABASE_URL: `postgresql://${CANONICAL_RESOLVER_ROLE}:${env.LOCAL_WORKER_LEASE_RESOLVER_PASSWORD || "nova-lease-resolver-local"}@127.0.0.1:${DB_PORT}/postgres`,
+    LOCAL_WORKER_LEASE_ISSUER_PASSWORD: "nova-lease-issuer-local",
+    LOCAL_WORKER_LEASE_RESOLVER_PASSWORD: "nova-lease-resolver-local",
+    LOCAL_ADMIN_PASSWORD: ADMIN_PASSWORD,
+    LOCAL_RESEARCHER_PASSWORD: RESEARCHER_PASSWORD,
     E2E_SUPABASE_EMAIL: ADMIN_EMAIL,
     E2E_SUPABASE_PASSWORD: ADMIN_PASSWORD,
   };
@@ -140,6 +143,12 @@ function up() {
     "ALTER ROLE postgres WITH SUPERUSER",
     "ALTER ROLE supabase_admin WITH LOGIN PASSWORD 'postgres'",
     "ALTER ROLE supabase_auth_admin WITH LOGIN PASSWORD 'postgres'",
+    // seed-local-tenant.mjs calls public.crypt/public.gen_salt; the image
+    // installs pgcrypto in `extensions` (Supabase convention), so expose
+    // thin public-schema wrappers instead of relocating the extension.
+    "CREATE OR REPLACE FUNCTION public.crypt(text, text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT extensions.crypt($1, $2) $$",
+    "CREATE OR REPLACE FUNCTION public.gen_salt(text) RETURNS text LANGUAGE sql VOLATILE AS $$ SELECT extensions.gen_salt($1) $$",
+    "CREATE OR REPLACE FUNCTION public.gen_salt(text, integer) RETURNS text LANGUAGE sql VOLATILE AS $$ SELECT extensions.gen_salt($1, $2) $$",
   ].join(";");
   const res = sh("docker", ["exec", DB_CONTAINER, "psql", "-U", "supabase_admin", "-d", "postgres", "-c", pin], { allowFail: true });
   if (res.status !== 0) log(`role pin warning: ${(res.stderr || "").trim()}`);
@@ -221,78 +230,37 @@ function migrate() {
   log(`migrations applied — public schema has ${cnt} tables`);
 }
 
-// ---------- restricted roles (0X3-228) ----------
+// ---------- seed + restricted lease roles (0X3-227/0X3-228) ----------
+// Delegates to the canonical L-01 seed (scripts/seed-local-tenant.mjs /
+// `npm run local:seed`), which provisions the worker lease issuer/resolver
+// roles with an exact capability proof and seeds the admin + researcher
+// tenant foundation in one idempotent pass.
 
-function roles() {
+function runCanonicalSeed() {
   const env = ensureEnv();
-  // Identifiers via format %I, literals via %L — no secrets committed.
-  const sql = readFileSync(join(STACK_DIR, "roles.sql"), "utf8")
-    .replaceAll("{{issuer_role}}", ISSUER_ROLE)
-    .replaceAll("{{resolver_role}}", RESOLVER_ROLE)
-    .replaceAll("{{issuer_pw}}", env.NOVA_LOCAL_ISSUER_PW.replace(/'/g, "''"))
-    .replaceAll("{{resolver_pw}}", env.NOVA_LOCAL_RESOLVER_PW.replace(/'/g, "''"));
-  const res = psqlAs("postgres", ["-f", "-"], sql);
-  if (res.status !== 0) { console.error(res.stderr); process.exit(1); }
-  log(`restricted lease roles ready: ${ISSUER_ROLE}, ${RESOLVER_ROLE}`);
+  const res = sh("node", [join(ROOT, "scripts", "seed-local-tenant.mjs")], {
+    pipe: false,
+    env: {
+      ...process.env,
+      DATABASE_URL: DB_SUPER_URL,
+      LOCAL_ADMIN_EMAIL: ADMIN_EMAIL,
+      LOCAL_ADMIN_PASSWORD: env.LOCAL_ADMIN_PASSWORD,
+      LOCAL_RESEARCHER_EMAIL: RESEARCHER_EMAIL,
+      LOCAL_RESEARCHER_PASSWORD: env.LOCAL_RESEARCHER_PASSWORD,
+      LOCAL_WORKER_LEASE_ISSUER_PASSWORD: env.LOCAL_WORKER_LEASE_ISSUER_PASSWORD,
+      LOCAL_WORKER_LEASE_RESOLVER_PASSWORD: env.LOCAL_WORKER_LEASE_RESOLVER_PASSWORD,
+    },
+  });
+  if (res.status !== 0) process.exit(res.status ?? 1);
 }
 
-// ---------- seed (0X3-227) ----------
+function roles() {
+  runCanonicalSeed();
+  log("restricted lease roles provisioned via scripts/seed-local-tenant.mjs");
+}
 
 async function seed() {
-  const env = ensureEnv();
-  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
-
-  async function adminCreateUser(email, password) {
-    const res = await fetch(`${GATEWAY_URL}/auth/v1/admin/users`, {
-      method: "POST",
-      headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, email_confirm: true }),
-    });
-    if (res.status === 422) {
-      const list = await (await fetch(`${GATEWAY_URL}/auth/v1/admin/users?page=1&per_page=100`, {
-        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
-      })).json();
-      const found = (list.users || []).find((u) => u.email === email);
-      if (found) { log(`auth user exists: ${email}`); return found.id; }
-    }
-    if (!res.ok) throw new Error(`admin/users ${res.status}: ${await res.text()}`);
-    const user = await res.json();
-    log(`created auth user: ${email} (${user.id})`);
-    return user.id;
-  }
-
-  const adminId = await adminCreateUser(ADMIN_EMAIL, ADMIN_PASSWORD);
-  const researcherId = await adminCreateUser(RESEARCHER_EMAIL, RESEARCHER_PASSWORD);
-
-  const seedSql = `
-    INSERT INTO public.tenants (id, slug, name, status, locale, timezone)
-    VALUES ('11111111-1111-4111-8111-111111111111', 'nova-local', 'Nova Local Tenant', 'active', 'en-US', 'America/Denver')
-    ON CONFLICT (id) DO NOTHING;
-    INSERT INTO public.workspaces (id, tenant_id, slug, name, status)
-    VALUES ('22222222-2222-4222-8222-222222222222', '11111111-1111-4111-8111-111111111111', 'main', 'Main Workspace', 'active')
-    ON CONFLICT (id) DO NOTHING;
-    INSERT INTO public.tenant_policies (id, tenant_id)
-    VALUES ('33333333-3333-4333-8333-333333333333', '11111111-1111-4111-8111-111111111111')
-    ON CONFLICT (id) DO NOTHING;
-    INSERT INTO public.tenant_memberships (id, tenant_id, auth_identity_id, workspace_id, status)
-    VALUES
-      ('44444444-4444-4444-8444-444444444441', '11111111-1111-4111-8111-111111111111', '${adminId}', '22222222-2222-4222-8222-222222222222', 'active'),
-      ('44444444-4444-4444-8444-444444444442', '11111111-1111-4111-8111-111111111111', '${researcherId}', '22222222-2222-4222-8222-222222222222', 'active')
-    ON CONFLICT (id) DO NOTHING;
-    INSERT INTO public.tenant_role_bindings (id, tenant_id, membership_id, role, reason_code)
-    VALUES
-      ('55555555-5555-4555-8555-555555555551', '11111111-1111-4111-8111-111111111111', '44444444-4444-4444-8444-444444444441', 'owner', 'initial_provisioning'),
-      ('55555555-5555-4555-8555-555555555552', '11111111-1111-4111-8111-111111111111', '44444444-4444-4444-8444-444444444442', 'researcher', 'initial_provisioning')
-    ON CONFLICT (id) DO NOTHING;
-    INSERT INTO public.app_users (id, user_id, email, display_name, role, status, created_at, updated_at)
-    VALUES
-      (gen_random_uuid(), '${adminId}', '${ADMIN_EMAIL}', 'Local Admin', 'admin', 'active', now(), now()),
-      (gen_random_uuid(), '${researcherId}', '${RESEARCHER_EMAIL}', 'Local Researcher', 'researcher', 'active', now(), now())
-    ON CONFLICT (user_id) DO UPDATE SET role = excluded.role, status = excluded.status, updated_at = now();
-  `;
-  const res = psqlAs("postgres", ["-f", "-"], seedSql);
-  if (res.status !== 0) { console.error(res.stderr); process.exit(1); }
-  log(`seeded tenant identity: admin=${ADMIN_EMAIL} researcher=${RESEARCHER_EMAIL}`);
+  runCanonicalSeed();
 }
 
 // ---------- disposable PG16 rehearsal cluster ----------
@@ -468,12 +436,12 @@ async function verify() {
   checks.push(["leases table", q("SELECT to_regclass('public.tenant_worker_dispatch_leases') IS NOT NULL")]);
   checks.push(["acquire fn", q("SELECT to_regprocedure('public.novatrade_acquire_tenant_worker_lease(text,text,text,text,text,text,text,text,text,text,text,text)') IS NOT NULL")]);
   checks.push(["resolve fn", q("SELECT to_regprocedure('public.novatrade_resolve_tenant_worker_lease(text,text,text)') IS NOT NULL")]);
-  checks.push(["issuer role", q(`SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='${ISSUER_ROLE}' AND rolcanlogin AND NOT rolinherit AND NOT rolsuper)`)]);
-  checks.push(["resolver role", q(`SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='${RESOLVER_ROLE}' AND rolcanlogin AND NOT rolinherit AND NOT rolsuper)`)]);
-  checks.push(["issuer canAcquire", q(`SELECT has_function_privilege('${ISSUER_ROLE}','public.novatrade_acquire_tenant_worker_lease(text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE')`)]);
-  checks.push(["resolver canResolve", q(`SELECT has_function_privilege('${RESOLVER_ROLE}','public.novatrade_resolve_tenant_worker_lease(text,text,text)','EXECUTE')`)]);
-  checks.push(["issuer no lease table privs", q(`SELECT NOT has_table_privilege('${ISSUER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${ISSUER_ROLE}','public.tenant_worker_dispatch_leases','INSERT')`)]);
-  checks.push(["resolver no lease table privs", q(`SELECT NOT has_table_privilege('${RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','UPDATE')`)]);
+  checks.push(["issuer role", q(`SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='${CANONICAL_ISSUER_ROLE}' AND rolcanlogin AND NOT rolinherit AND NOT rolsuper)`)]);
+  checks.push(["resolver role", q(`SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='${CANONICAL_RESOLVER_ROLE}' AND rolcanlogin AND NOT rolinherit AND NOT rolsuper)`)]);
+  checks.push(["issuer canAcquire", q(`SELECT has_function_privilege('${CANONICAL_ISSUER_ROLE}','public.novatrade_acquire_tenant_worker_lease(text,text,text,text,text,text,text,text,text,text,text,text)','EXECUTE')`)]);
+  checks.push(["resolver canResolve", q(`SELECT has_function_privilege('${CANONICAL_RESOLVER_ROLE}','public.novatrade_resolve_tenant_worker_lease(text,text,text)','EXECUTE')`)]);
+  checks.push(["issuer no lease table privs", q(`SELECT NOT has_table_privilege('${CANONICAL_ISSUER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${CANONICAL_ISSUER_ROLE}','public.tenant_worker_dispatch_leases','INSERT')`)]);
+  checks.push(["resolver no lease table privs", q(`SELECT NOT has_table_privilege('${CANONICAL_RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${CANONICAL_RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','UPDATE')`)]);
   checks.push(["auth users", q(`SELECT count(*) >= 2 FROM auth.users`)]);
   checks.push(["tenant seeded", q(`SELECT status='active' FROM public.tenants WHERE slug='nova-local'`)]);
   checks.push(["app_users seeded", q(`SELECT count(*) >= 2 FROM public.app_users`)]);

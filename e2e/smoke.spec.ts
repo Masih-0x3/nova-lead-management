@@ -129,8 +129,8 @@ test.describe("Smoke pass", () => {
 
     await openAdminPage(page, "Users");
     await page.waitForURL(/\/users/, { timeout: 5000 });
-    await expect(page.getByRole("columnheader", { name: "Team", exact: true })).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('select[aria-label^="Role for"]:visible').first()).toBeVisible();
-    await expect(page.locator('select[aria-label^="Team lead for"]:visible').first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Tenant-wide members", exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: "Workspace members", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Role-binding audit", exact: true })).toBeVisible();
   });
 });

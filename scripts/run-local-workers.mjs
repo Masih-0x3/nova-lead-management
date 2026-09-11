@@ -142,14 +142,19 @@ async function main() {
   const issuerUrl = requiredEnv("TENANT_WORKER_LEASE_ISSUER_DATABASE_URL");
   const baseUrl = (env.WORKER_ROUTE_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/+$/u, "");
   const tenantId = uuid("LOCAL_TENANT_ID", env.LOCAL_TENANT_ID ?? "10000000-0000-4000-8000-000000000001");
-  const workspaceId = uuid("LOCAL_WORKSPACE_ID", env.LOCAL_WORKSPACE_ID ?? "11000000-0000-4000-8000-000000000001");
+  // All five worker routes require a tenant-wide worker context: their exact
+  // context guards reject any non-null workspaceId. A workspace-scoped lease
+  // is only valid when LOCAL_WORKSPACE_ID is explicitly provided.
+  const workspaceId = env.LOCAL_WORKSPACE_ID?.trim()
+    ? uuid("LOCAL_WORKSPACE_ID", env.LOCAL_WORKSPACE_ID.trim())
+    : null;
   const cronSecret = env.WORKER_CRON_SECRET?.trim();
   const leaseTtlMs = Number(env.LOCAL_WORKER_LEASE_TTL_MS ?? 90_000);
   const requestTimeoutMs = Number(env.LOCAL_WORKER_REQUEST_TIMEOUT_MS ?? 70_000);
   if (!Number.isSafeInteger(leaseTtlMs) || leaseTtlMs < 10_000) fail("LOCAL_WORKER_LEASE_TTL_MS must be a number of milliseconds");
   if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 5_000) fail("LOCAL_WORKER_REQUEST_TIMEOUT_MS must be a number of milliseconds");
 
-  console.log(`[run-local-workers] dispatching ${WORKERS.length} workers to ${baseUrl} for tenant ${tenantId} (workspace ${workspaceId})`);
+  console.log(`[run-local-workers] dispatching ${WORKERS.length} workers to ${baseUrl} for tenant ${tenantId} (workspace ${workspaceId ?? "tenant-wide"})`);
   const results = [];
   for (const worker of WORKERS) {
     results.push(await dispatch(worker, {

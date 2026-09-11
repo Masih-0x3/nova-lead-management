@@ -416,7 +416,7 @@ export function ExploreClient({
               <SegmentButton active={view === "cards"} onClick={() => pushFilters({ view: "cards" })}>Cards</SegmentButton>
               <SegmentButton active={view === "table"} onClick={() => pushFilters({ view: "table" })}>Table</SegmentButton>
               <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
-                {total.toLocaleString()} results <HelpTip>Filters update the list and optional map together. The map drawer loads Google Maps only after you open it.</HelpTip>
+                {total.toLocaleString()} results <HelpTip side="left">Filters update the list and optional map together. The map drawer loads Google Maps only after you open it.</HelpTip>
               </span>
             </div>
           </div>

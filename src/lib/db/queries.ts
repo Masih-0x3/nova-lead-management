@@ -10511,7 +10511,7 @@ export async function getTeamBoardSummary(): Promise<TeamBoardSummary> {
   const roleBindingAsOf = new Date().toISOString();
 
   const members = await db.prepare(
-    `WITH tenant_scope(tenant_id) AS (VALUES (?))
+    `WITH tenant_scope(tenant_id) AS (VALUES (CAST(? AS uuid)))
      SELECT
        au.user_id,
        au.email,
@@ -10619,7 +10619,7 @@ export async function getTeamBoardSummary(): Promise<TeamBoardSummary> {
       AND l.assigned_to_user_id = au.user_id
       AND COALESCE(l.is_excluded, 0) = 0
       AND l.archived_at IS NULL
-     GROUP BY au.user_id, au.email, au.display_name, member_role.role
+     GROUP BY member.tenant_id, au.user_id, au.email, au.display_name, member_role.role
      ORDER BY member_role.role ASC, au.email ASC`
   ).all<Record<string, unknown>>(
     tenantId,
@@ -10703,7 +10703,7 @@ export async function getResearcherTeamBoardSummary(userId: string): Promise<Tea
   const roleBindingAsOf = new Date().toISOString();
 
   const memberRow = await db.prepare(
-    `WITH tenant_scope(tenant_id) AS (VALUES (?))
+    `WITH tenant_scope(tenant_id) AS (VALUES (CAST(? AS uuid)))
      SELECT
        au.user_id,
        au.email,
@@ -10811,7 +10811,7 @@ export async function getResearcherTeamBoardSummary(userId: string): Promise<Tea
       AND l.assigned_to_user_id = au.user_id
       AND COALESCE(l.is_excluded, 0) = 0
       AND l.archived_at IS NULL
-     GROUP BY au.user_id, au.email, au.display_name, member_role.role`
+     GROUP BY member.tenant_id, au.user_id, au.email, au.display_name, member_role.role`
   ).get<Record<string, unknown>>(
     tenantId,
     today,
@@ -10892,7 +10892,7 @@ async function getTeamBoardActivityRows({
   params.push(safeLimit);
 
   return db.prepare(
-    `WITH tenant_scope(tenant_id) AS (VALUES (?))
+    `WITH tenant_scope(tenant_id) AS (VALUES (CAST(? AS uuid)))
      SELECT *
      FROM (
        SELECT
