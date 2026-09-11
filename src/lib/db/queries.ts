@@ -10511,7 +10511,7 @@ export async function getTeamBoardSummary(): Promise<TeamBoardSummary> {
   const roleBindingAsOf = new Date().toISOString();
 
   const members = await db.prepare(
-    `WITH tenant_scope(tenant_id) AS (VALUES (CAST(? AS uuid)))
+    `WITH tenant_scope(tenant_id) AS (VALUES (?))
      SELECT
        au.user_id,
        au.email,
@@ -10603,7 +10603,7 @@ export async function getTeamBoardSummary(): Promise<TeamBoardSummary> {
        ), 0) as quote_requests_open
      FROM tenant_scope tenant
      JOIN tenant_memberships member
-       ON member.tenant_id = tenant.tenant_id
+       ON CAST(member.tenant_id AS text) = tenant.tenant_id
       AND member.status = 'active'
       AND member.auth_identity_id IS NOT NULL
      JOIN tenant_role_bindings member_role
@@ -10703,7 +10703,7 @@ export async function getResearcherTeamBoardSummary(userId: string): Promise<Tea
   const roleBindingAsOf = new Date().toISOString();
 
   const memberRow = await db.prepare(
-    `WITH tenant_scope(tenant_id) AS (VALUES (CAST(? AS uuid)))
+    `WITH tenant_scope(tenant_id) AS (VALUES (?))
      SELECT
        au.user_id,
        au.email,
@@ -10795,7 +10795,7 @@ export async function getResearcherTeamBoardSummary(userId: string): Promise<Tea
        ), 0) as quote_requests_open
      FROM tenant_scope tenant
      JOIN tenant_memberships member
-       ON member.tenant_id = tenant.tenant_id
+       ON CAST(member.tenant_id AS text) = tenant.tenant_id
       AND member.status = 'active'
       AND member.auth_identity_id = ?
      JOIN tenant_role_bindings member_role
@@ -10892,7 +10892,7 @@ async function getTeamBoardActivityRows({
   params.push(safeLimit);
 
   return db.prepare(
-    `WITH tenant_scope(tenant_id) AS (VALUES (CAST(? AS uuid)))
+    `WITH tenant_scope(tenant_id) AS (VALUES (?))
      SELECT *
      FROM (
        SELECT
@@ -11071,7 +11071,7 @@ function buildActivityWhere(
   extraConditions: string[] = [],
 ): string {
   const conditions = [
-    `${alias}.tenant_id = (SELECT tenant_id FROM tenant_scope)`,
+    `CAST(${alias}.tenant_id AS text) = (SELECT tenant_id FROM tenant_scope)`,
     ...extraConditions,
   ];
   if (since) {
