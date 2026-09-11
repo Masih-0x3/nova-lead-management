@@ -283,6 +283,7 @@ const TEST_DBS = [
   "g002_location_crawl_rehearsal_v1",
   "g003_lead_crm_rehearsal_v1",
   "g007sr4_min_reviews_rehearsal_v1",
+  "l01_worker_routes_rehearsal",
 ];
 // Rehearsal DBs whose suites do NOT replay migrations themselves.
 const PREMIGRATED_DBS = ["t027_rls_rehearsal", "g007sr4_min_reviews_rehearsal_v1"];
@@ -424,6 +425,12 @@ function testEnv() {
     `F06_AGENT_RUNTIME_RUN_DISPOSABLE_TESTS=1`,
     `F09_CONNECTOR_RUNTIME_RUN_DISPOSABLE_TESTS=1`,
     `F09_SOURCE_POLICY_LIFECYCLE_RUN_DISPOSABLE_TESTS=1`,
+    // L-01 worker-route rehearsal: the suite self-provisions its restricted
+    // lease roles (l01_* pattern) on this exact disposable database.
+    `L01_WORKER_ROUTES_RUN_DISPOSABLE_TESTS=1`,
+    `L01_WORKER_ROUTES_ADMIN_DATABASE_URL=${a}/l01_worker_routes_rehearsal`,
+    `TENANT_WORKER_LEASE_ISSUER_DATABASE_URL=postgresql://l01_lease_issuer:l01-issuer@127.0.0.1:${TESTDB_PORT}/l01_worker_routes_rehearsal`,
+    `TENANT_WORKER_LEASE_RESOLVER_DATABASE_URL=postgresql://l01_lease_resolver:l01-resolver@127.0.0.1:${TESTDB_PORT}/l01_worker_routes_rehearsal`,
   ];
   for (const l of lines) console.log(l.startsWith("#") ? l : `export ${l}`);
 }
