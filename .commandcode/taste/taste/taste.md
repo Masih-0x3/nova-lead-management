@@ -8,3 +8,8 @@
 - Likes reusable conductor/orchestrator prompt templates that can be pasted into a new terminal to resume work with maximum concurrency. Confidence: 0.8
 - Expects periodic status summaries: current position in the plan, how much work remains, what's next, and why. Confidence: 0.8
 - Project development moved from Windows to Fedora Linux; Windows-specific code must be made portable, and Supabase/Postgres is the target database going forward. Confidence: 0.8
+- Wants a comprehensive handoff document maintained continuously alongside the work, so it always reflects what has been done and what is left. Confidence: 0.85
+- Routes work across models/agents by cost and capability: the strongest model is reserved for hard tasks, a fast/cheap model handles the bulk, and other running CLI agent sessions (e.g. claude, cline) are treated as available subagents to dedicate tasks to. Confidence: 0.8
+- Prefers maximum reasoning/orchestration settings (ultracode effort: xhigh reasoning plus dynamic workflow orchestration) for these sessions. Confidence: 0.7
+- Insists status reporting truthfully separate durably accepted work from unaccepted/candidate work; never claim acceptance without evidence, and label local/fixture evidence as such rather than as hosted/staging/production evidence. Confidence: 0.85
+- Expects adversarial independent review of delegated artifacts with explicit ranked findings (HIGH/MEDIUM/LOW) and a clear verdict, plus a postmortem and tightened acceptance predicates whenever a real defect slips through review. Confidence: 0.8

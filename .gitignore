@@ -61,3 +61,5 @@ next-env.d.ts
 *.dump
 *.sql.gz
 .env*.local
+supabase/local/certs/
+supabase/local/.env

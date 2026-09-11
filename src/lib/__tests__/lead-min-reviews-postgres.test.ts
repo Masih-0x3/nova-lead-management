@@ -68,9 +68,22 @@ describe.skipIf(!enabled)("minimum-review PostgreSQL bind regression", () => {
       vi.resetModules();
       const dbModule = await import("@/lib/db/index");
       resetDbClient = dbModule.resetDbClient;
+      // Dynamic import keeps the tenancy context on the same post-resetModules
+      // module graph as queries.ts (shared AsyncLocalStorage).
+      const { runWithTenantContext } = await import("@/lib/tenancy/context");
       const { getLeads } = await import("@/lib/db/queries");
+      const session = {
+        userId: randomUUID(),
+        email: "g007sr4-runtime@example.test",
+        displayName: "G-007SR4 Runtime",
+        tenantId,
+        workspaceId: null,
+        membershipId: randomUUID(),
+        role: "researcher",
+        roleBindingId: randomUUID(),
+      };
       const read = async (minReviews: unknown) => {
-        const result = await getLeads({
+        const result = await runWithTenantContext(session, `g007sr4-${suffix}`, () => getLeads({
           search: marker,
           archived: "all",
           includeExcluded: true,
@@ -78,7 +91,7 @@ describe.skipIf(!enabled)("minimum-review PostgreSQL bind regression", () => {
           sortBy: "review_count",
           sortDir: "asc",
           pageSize: 20,
-        });
+        }));
         return result.leads.map((lead) => lead.id).sort();
       };
       const allIds = Object.values(ids).sort();
