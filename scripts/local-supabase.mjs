@@ -7,7 +7,7 @@
 
 import { execFileSync, execSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, chmodSync } from "node:fs";
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
