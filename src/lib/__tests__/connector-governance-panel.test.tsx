@@ -40,7 +40,7 @@ function authority(overrides: Partial<ConnectorSourceRunAuthoritySnapshot> = {})
     },
     unit: {
       id: "unit-a", tenantId: TENANT, workspaceId: WORKSPACE, runId: "run-a", checkpointKey: "run-a:unit-a:page-1",
-      inputHash: HASH_C, cursor: null, status: "running", attemptCount: 1, maxAttempts: 3, reservedUnits: 1,
+      inputHash: HASH_C, cursor: null, sequence: 1, status: "running", attemptCount: 1, maxAttempts: 3, reservedUnits: 1,
       leaseGeneration: 1, leaseTokenHash: HASH_A, leaseWorkerHash: HASH_B, leaseExpiresAt: "2026-08-29T12:05:00.000Z",
     },
     ...overrides,
