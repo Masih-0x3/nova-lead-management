@@ -5,6 +5,9 @@ import { join, resolve } from "node:path";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import type { DbClient } from "@/lib/db";
+import { createPostgresPlayAuthorityPort } from "@/lib/discovery/play-authority-port";
+
 const RUN = process.env.L05_SCHEMA_RUN_DISPOSABLE_TESTS === "1";
 const POSTGRES_16 = "postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20";
 const DATABASE = "l05_schema_rehearsal";
@@ -187,6 +190,58 @@ async function insertQualification(client: Sql, versionId: string, qualHash: str
 async function expectDenied(promise: Promise<unknown>, message: string): Promise<void> {
   await expect(promise).rejects.toMatchObject({ message: expect.stringContaining(message) });
 }
+
+function dbClient(client: Sql): DbClient {
+  return {
+    prepare(query: string) {
+      let parameter = 0;
+      const pgQuery = query.replaceAll("?", () => `$${++parameter}`);
+      const execute = async (params: unknown[]) => client.unsafe(pgQuery, params as never[]);
+      return {
+        get: async <T = Record<string, unknown>>(...params: unknown[]) => {
+          const rows = await execute(params);
+          return rows[0] as T | undefined;
+        },
+        all: async <T = Record<string, unknown>>(...params: unknown[]) => {
+          const rows = await execute(params);
+          return rows as unknown as T[];
+        },
+        run: async (...params: unknown[]) => {
+          const rows = await execute(params);
+          return { changes: rows.count ?? 0 };
+        },
+      };
+    },
+    exec: async (query: string) => {
+      await client.unsafe(query);
+    },
+  };
+}
+
+// L-04 strategy contract fixture: the columns the play-authority port reads,
+// pinned to 20260914000100_add_l04_understanding_strategy_foundation.sql on the
+// Masih-0x3/nova-l04-strategy branch. Kept minimal (no icp/understanding FKs)
+// because the L-04 migration ships with its own lane.
+const L04_CONTRACT_DDL = `
+CREATE TABLE IF NOT EXISTS public.lead_play_versions (
+  version_id text PRIMARY KEY,
+  tenant_id uuid NOT NULL,
+  workspace_id uuid,
+  stable_key text NOT NULL,
+  source jsonb NOT NULL,
+  review jsonb NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.lead_play_activation_states (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id uuid NOT NULL,
+  workspace_id uuid,
+  stable_key text NOT NULL,
+  state jsonb NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);`;
 
 describe.skipIf(!RUN)("L-05 discovery/accounts/contacts/qualification schema on PostgreSQL 16", () => {
   beforeAll(async () => {
@@ -407,5 +462,53 @@ describe.skipIf(!RUN)("L-05 discovery/accounts/contacts/qualification schema on 
       sql.unsafe(`DELETE FROM public.review_queue_documents WHERE queue_id='${queueId}'`),
       "L05_RECORD_IMMUTABLE",
     );
+  });
+
+  it("resolves play authority through the real L-04 contract on Postgres", async () => {
+    if (!sql) throw new Error("database unavailable");
+    await sql.unsafe(L04_CONTRACT_DDL);
+    const port = createPostgresPlayAuthorityPort(dbClient(sql));
+
+    const wsPlay = `lead-play-version:${hash("a")}`;
+    const tenantPlay = `lead-play-version:${hash("b")}`;
+    await sql.unsafe(`INSERT INTO public.lead_play_versions(
+      version_id,tenant_id,workspace_id,stable_key,source,review,created_at,updated_at
+    ) VALUES
+      ('${wsPlay}','${TENANT}','${WORKSPACE_A}','play.ws','{"proposalVersion":1,"scope":"ws"}',
+        '{"reviewVersion":1,"status":"approved"}','${T0}','${T0}'),
+      ('${tenantPlay}','${TENANT}',NULL,'play.tenant','{"proposalVersion":1,"scope":"tenant"}',
+        '{"reviewVersion":1,"status":"approved"}','${T0}','${T0}')`);
+    await sql.unsafe(`INSERT INTO public.lead_play_activation_states(
+      tenant_id,workspace_id,stable_key,state,created_at,updated_at
+    ) VALUES
+      ('${TENANT}','${WORKSPACE_A}','play.ws','{"stateVersion":1,"stableKey":"play.ws"}','${T0}','${T0}'),
+      ('${TENANT}',NULL,'play.tenant','{"stateVersion":1,"stableKey":"play.tenant"}','${T0}','${T0}')`);
+
+    const wsAuthority = await port.loadPlayAuthority({
+      tenantId: TENANT, workspaceId: WORKSPACE_A, playVersionId: wsPlay,
+    });
+    expect(wsAuthority).toEqual({
+      activationState: { stateVersion: 1, stableKey: "play.ws" },
+      playReview: { reviewVersion: 1, status: "approved" },
+      playSource: { proposalVersion: 1, scope: "ws" },
+    });
+
+    const tenantAuthority = await port.loadPlayAuthority({
+      tenantId: TENANT, workspaceId: null, playVersionId: tenantPlay,
+    });
+    expect(tenantAuthority?.playSource).toEqual({ proposalVersion: 1, scope: "tenant" });
+
+    // A workspace-scoped selector must not see the tenant-scoped play.
+    expect(await port.loadPlayAuthority({
+      tenantId: TENANT, workspaceId: WORKSPACE_A, playVersionId: tenantPlay,
+    })).toBeNull();
+    // Unknown version → fail closed.
+    expect(await port.loadPlayAuthority({
+      tenantId: TENANT, workspaceId: WORKSPACE_A, playVersionId: `lead-play-version:${hash("f")}`,
+    })).toBeNull();
+    // Foreign tenant → fail closed.
+    expect(await port.loadPlayAuthority({
+      tenantId: "99999999-0000-4000-8000-000000000099", workspaceId: WORKSPACE_A, playVersionId: wsPlay,
+    })).toBeNull();
   });
 });
