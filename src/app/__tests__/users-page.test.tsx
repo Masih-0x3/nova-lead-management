@@ -2,6 +2,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
 const authMocks = vi.hoisted(() => ({ getTenantSession: vi.fn() }));
 const dbIndexMocks = vi.hoisted(() => ({
   withDbStatementTimeout: vi.fn((_timeoutMs: number, fn: () => Promise<unknown>) => fn()),
