@@ -25,6 +25,7 @@ export type OutcomeTaxonomy =
   | "won"
   | "lost"
   | "not_interested"
+  | "disqualified"
   | "unknown";
 
 export type OutcomeSource = Readonly<{
@@ -143,7 +144,8 @@ const DRAFT_VERSION = /^outreach-draft-version:[0-9a-f]{64}$/u;
 const OUTCOME_VERSION = /^outcome-version:[0-9a-f]{64}$/u;
 const TAXONOMY = new Set<OutcomeTaxonomy>([
   "copied", "exported", "sent_manually", "delivery_unknown", "bounced", "unknown_bounce", "opted_out",
-  "complaint", "replied", "meeting_set", "opportunity", "won", "lost", "not_interested", "unknown",
+  "complaint", "replied", "meeting_set", "opportunity", "won", "lost", "not_interested", "disqualified",
+  "unknown",
 ]);
 const CHANNELS = new Set(["email", "phone", "sms", "social", "in_person", "other", "none"]);
 const ATTRIBUTION_KINDS = new Set(["direct", "assisted", "unknown"]);

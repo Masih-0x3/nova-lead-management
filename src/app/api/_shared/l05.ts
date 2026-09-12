@@ -59,7 +59,7 @@ function isL05ServiceError(error: unknown): error is L05ServiceError {
   if (!(error instanceof Error)) return false;
   const code: unknown = (error as { code?: unknown }).code;
   return typeof code === "string"
-    && /^(?:ACCOUNT|CONTACT|DISCOVERY|QUALIFICATION|REVIEW|RESOLUTION|CONNECTOR|PLAN|RUN|PLAY)_/u
+    && /^(?:ACCOUNT|CONTACT|DISCOVERY|QUALIFICATION|REVIEW|RESOLUTION|CONNECTOR|PLAN|RUN|PLAY|OUTREACH|OUTCOME|LEARNING|SUPPRESSION)_/u
       .test(code);
 }
 
@@ -72,7 +72,8 @@ function serviceErrorStatus(code: string): number {
     || code.endsWith("DUPLICATE_ITEM") || code.endsWith("BOUNDS_EXCEEDED")
     || code.endsWith("CAP_EXCEEDED")) return 409;
   if (/_REVIEW_REQUIRED$/u.test(code) || code.endsWith("HUMAN_REVIEW_REQUIRED")
-    || code.endsWith("HUMAN_ACTOR_REQUIRED")) return 403;
+    || code.endsWith("HUMAN_ACTOR_REQUIRED") || code.endsWith("HUMAN_CORRECTION_REQUIRED")
+    || code.endsWith("SEPARATION_OF_DUTY")) return 403;
   if (code.endsWith("SCOPE_MISMATCH")) return 403;
   if (code.endsWith("MALFORMED_INPUT")) return 400;
   return 422;
