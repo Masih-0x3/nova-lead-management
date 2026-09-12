@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS public.discovery_plans (
     pg_catalog.jsonb_typeof(payload) = 'object'
     AND payload->>'planId' = plan_id
     AND payload->>'tenantId' = tenant_id::text
-    AND pg_catalog.coalesce(payload->>'workspaceId', '')
-      = pg_catalog.coalesce(workspace_id::text, '')
+    AND coalesce(payload->>'workspaceId', '')
+      = coalesce(workspace_id::text, '')
     AND payload->>'planHash' = 'sha256:' || plan_sha256
     AND payload->>'status' = status
     AND payload->'play'->>'stableKey' = play_stable_key
@@ -94,8 +94,8 @@ CREATE TABLE IF NOT EXISTS public.discovery_runs (
     pg_catalog.jsonb_typeof(payload) = 'object'
     AND payload->>'runId' = run_id
     AND payload->>'tenantId' = tenant_id::text
-    AND pg_catalog.coalesce(payload->>'workspaceId', '')
-      = pg_catalog.coalesce(workspace_id::text, '')
+    AND coalesce(payload->>'workspaceId', '')
+      = coalesce(workspace_id::text, '')
     AND payload->'plan'->>'planId' = plan_id
     AND payload->>'runHash' = 'sha256:' || run_sha256
     AND payload->>'status' = status

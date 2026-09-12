@@ -95,6 +95,7 @@ export const MIGRATION_COLUMNS: Array<{ table: string; column: string; type: str
   { table: "settings", column: "scheduler_enrichment_enabled", type: "INTEGER NOT NULL DEFAULT 1" },
   { table: "settings", column: "scheduler_artifact_enabled", type: "INTEGER NOT NULL DEFAULT 1" },
   { table: "settings", column: "scheduler_score_recompute_enabled", type: "INTEGER NOT NULL DEFAULT 1" },
+  { table: "settings", column: "scheduler_connector_execution_enabled", type: "INTEGER NOT NULL DEFAULT 1" },
   { table: "settings", column: "openai_api_key_encrypted", type: "TEXT" },
   { table: "settings", column: "google_places_api_key_encrypted", type: "TEXT" },
   { table: "settings", column: "google_maps_browser_api_key_encrypted", type: "TEXT" },

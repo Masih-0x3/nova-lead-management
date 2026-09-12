@@ -9,7 +9,11 @@ import type {
   ConnectorSourceRunAuthoritySnapshot,
 } from "./source-run-authority";
 import { createAuthorizedFixtureConnectorRunner } from "./source-run-authority";
-import type { ConnectorFixturePageExecutor, ConnectorRunnerResult } from "./runner";
+import type {
+  ConnectorFixtureExecutorResolver,
+  ConnectorFixturePageExecutor,
+  ConnectorRunnerResult,
+} from "./runner";
 import type { ConnectorAuthorityRepository } from "./repository";
 import { ConnectorPersistenceError } from "./repository";
 import type { ConnectorCommandRepository } from "./command-repository";
@@ -666,13 +670,15 @@ export type ExecuteNextSourceUnitInput = Readonly<{
   authorizedWorkspaceId: string | null;
   workerId: string;
   leaseMs: number;
-  execute: ConnectorFixturePageExecutor;
+  execute?: ConnectorFixturePageExecutor;
+  resolveExecutor?: ConnectorFixtureExecutorResolver;
 }>;
 
 export type ExecuteNextSourceUnitResult = Readonly<{
   status: "idle" | "executed";
   runId?: string;
   unitId?: string;
+  reason?: string;
   settle?: SettleSourceRunUnitResult;
 }>;
 
@@ -692,7 +698,11 @@ export async function executeNextSourceUnit(
   const workerId = runId(input.workerId, "workerId");
   const leaseMs = unitsField(input.leaseMs, "leaseMs");
   if (leaseMs <= 0 || leaseMs > MAX_LEASE_MS) throw invalid("leaseMs out of bounds");
-  if (typeof input.execute !== "function") throw invalid("execute must be a function");
+  const hasExecutor = typeof input.execute === "function";
+  const hasResolver = typeof input.resolveExecutor === "function";
+  if (hasExecutor === hasResolver) {
+    throw invalid("exactly one of execute or resolveExecutor is required");
+  }
 
   const candidates = await deps.authority.listRunnableUnits(
     tenantId, workspaceId, nowIso(deps.clock));
@@ -707,6 +717,18 @@ export async function executeNextSourceUnit(
     throw new ConnectorServiceError("CONNECTOR_NOT_FOUND", "The source run unit was not found.");
   }
 
+  const execute = hasExecutor
+    ? input.execute as ConnectorFixturePageExecutor
+    : await input.resolveExecutor!(snapshot.run.sourceCardId);
+  if (typeof execute !== "function") {
+    // No approved fixture dataset is bound to this card; idle before claiming
+    // so the unit stays runnable rather than being failed for missing input.
+    return Object.freeze({
+      status: "idle" as const, runId: next.runId, unitId: next.unitId,
+      reason: "no_fixture_executor",
+    });
+  }
+
   await claimSourceRunUnit(deps, {
     authorizedTenantId: tenantId, authorizedWorkspaceId: workspaceId,
     runId: next.runId, unitId: next.unitId, workerId, leaseMs,
@@ -716,7 +738,7 @@ export async function executeNextSourceUnit(
     result = await runAuthorizedFixturePage(deps, {
       authorizedTenantId: tenantId, authorizedWorkspaceId: workspaceId,
       runId: next.runId, unitId: next.unitId,
-      fields: snapshot.policy.allowedFields, execute: input.execute,
+      fields: snapshot.policy.allowedFields, execute,
     });
   } catch (error) {
     // Best-effort salvage: a leased unit left running is stranded forever, so

@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS public.contact_record_versions (
     AND payload->>'accountId' = account_id::text
     AND payload->>'stableKey' = stable_key
     AND (payload->>'revision')::numeric = revision
-    AND pg_catalog.coalesce(payload->>'supersedesVersionId', '') = pg_catalog.coalesce(supersedes_version_id, '')
+    AND coalesce(payload->>'supersedesVersionId', '') = coalesce(supersedes_version_id, '')
     AND payload->'review'->>'status' = review_status
     AND payload->>'suppressionDisposition' = suppression_disposition
     AND payload->'freshness'->>'state' = freshness_state
@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS public.buying_center_versions (
     AND payload->>'playVersionId' = play_version_id
     AND payload->>'stableKey' = stable_key
     AND (payload->>'revision')::numeric = revision
-    AND pg_catalog.coalesce(payload->>'supersedesVersionId', '') = pg_catalog.coalesce(supersedes_version_id, '')
+    AND coalesce(payload->>'supersedesVersionId', '') = coalesce(supersedes_version_id, '')
     AND payload->'review'->>'status' = review_status
     AND pg_catalog.jsonb_array_length(payload->'hypotheses') = hypothesis_count
     AND payload->>'contentHash' = 'sha256:' || content_sha256
@@ -292,7 +292,7 @@ BEGIN
   SELECT count(*) INTO trigger_count FROM pg_catalog.pg_trigger t
   WHERE NOT t.tgisinternal AND t.tgrelid = ANY (ARRAY[
     'public.contact_record_versions'::regclass, 'public.buying_center_versions'::regclass]);
-  IF table_count <> 2 OR rls_count <> 2 OR policy_count <> 0 OR trigger_count <> 4 THEN
+  IF table_count <> 2 OR rls_count <> 2 OR policy_count <> 0 OR trigger_count <> 6 THEN
     RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='L05_CONTACTS_CENTERS_CATALOG_INCOMPLETE';
   END IF;
 END;

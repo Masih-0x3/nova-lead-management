@@ -17,6 +17,7 @@ import { POST as enrichNextRoute } from "@/app/api/crawl/enrich-next/route";
 import { POST as verifyNextRoute } from "@/app/api/ai/verify-next/route";
 import { POST as artifactNextRoute } from "@/app/api/ai/artifacts/process-next/route";
 import { POST as recomputeStaleRoute } from "@/app/api/scores/recompute-stale/route";
+import { POST as connectorProcessNextRoute } from "@/app/api/connectors/process-next/route";
 
 const RUN = process.env.L01_WORKER_ROUTES_RUN_DISPOSABLE_TESTS === "1";
 const EXPECTED_DATABASE = "l01_worker_routes_rehearsal";
@@ -34,6 +35,7 @@ const ROUTES = [
   { workerName: "ai_verification", action: "ai_verification:process", path: "/api/ai/verify-next", call: verifyNextRoute },
   { workerName: "artifact", action: "artifact:process", path: "/api/ai/artifacts/process-next", call: artifactNextRoute },
   { workerName: "score_recompute", action: "score_recompute:recompute", path: "/api/scores/recompute-stale", call: recomputeStaleRoute },
+  { workerName: "connector_execution", action: "connector_execution:process", path: "/api/connectors/process-next", call: connectorProcessNextRoute },
 ] as const;
 
 const ACCEPTABLE_STATUSES = new Set(["idle", "processed", "done", "disabled"]);
@@ -102,7 +104,7 @@ async function replayMigrations(sql: Sql): Promise<void> {
     }
   }
   expect({ discovered: migrations.length, applied, skipped: SKIPPED.size })
-    .toEqual({ discovered: 68, applied: 66, skipped: 2 });
+    .toEqual({ discovered: 69, applied: 67, skipped: 2 });
 }
 
 function quoteLiteral(value: string): string {

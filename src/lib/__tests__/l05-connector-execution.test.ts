@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ConnectorCommandRepository } from "@/lib/connectors/command-repository";
 import type { ConnectorAuthorityRepository } from "@/lib/connectors/repository";
 import type { ConnectorSourceRunAuthoritySnapshot } from "@/lib/connectors/source-run-authority";
+import { resolveConnectorFixtureExecutor } from "@/lib/connectors/fixture-executors";
 import {
   executeNextSourceUnit,
   settleSourceRunUnit,
@@ -106,6 +107,7 @@ function harness(options: {
     insertPolicyVersion: async () => "created",
     insertActivation: async () => "created",
     revokeActivation: async () => undefined,
+    updatePolicyState: async () => undefined,
     insertRun: async () => "created",
     insertUnit: async (record) => { calls.units.push(record); },
     insertReservation: async (record) => { calls.reservations.push(record); return "created"; },
@@ -445,5 +447,80 @@ describe("executeNextSourceUnit", () => {
     expect(result.status).toBe("idle");
     expect(calls.claims).toHaveLength(0);
     expect(executorCalls).toBe(0);
+  });
+
+  it("idles without claiming when the executor resolver has no binding for the card", async () => {
+    const { deps, calls } = harness({
+      runnable: [{ runId: "run-a", unitId: "unit-a" }],
+      units: [unitRecord({ status: "queued" })],
+      snapshot: snapshotFixture(),
+    });
+    const resolverCards: string[] = [];
+
+    const result = await executeNextSourceUnit(deps, {
+      authorizedTenantId: TENANT, authorizedWorkspaceId: WORKSPACE,
+      workerId: WORKER, leaseMs: 60_000,
+      resolveExecutor: (sourceCardId: string) => {
+        resolverCards.push(sourceCardId);
+        return null;
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "idle", runId: "run-a", unitId: "unit-a", reason: "no_fixture_executor",
+    });
+    expect(resolverCards).toEqual(["google_places_legacy"]);
+    expect(calls.claims).toHaveLength(0);
+    expect(calls.completed).toHaveLength(0);
+  });
+
+  it("uses the resolver-bound executor for the runnable unit's source card", async () => {
+    const { deps, calls } = harness({
+      runnable: [{ runId: "run-a", unitId: "unit-a" }],
+      units: [unitRecord({ status: "running" })],
+      snapshot: snapshotFixture(),
+    });
+
+    const result = await executeNextSourceUnit(deps, {
+      authorizedTenantId: TENANT, authorizedWorkspaceId: WORKSPACE,
+      workerId: WORKER, leaseMs: 60_000,
+      resolveExecutor: async (sourceCardId: string) => sourceCardId === "google_places_legacy"
+        ? async () => ({
+          observation: {
+            sourceCardId: "google_places_legacy", operation: "search_text",
+            tenantId: TENANT, runId: "run-a", observedAt: NOW,
+            fields: { place_id: "places/example" },
+          },
+          nextCursor: null, complete: true, actualUnits: 1,
+        })
+        : null,
+    });
+
+    expect(result.status).toBe("executed");
+    expect(calls.claims).toHaveLength(1);
+    expect(calls.observations).toHaveLength(1);
+  });
+
+  it("rejects ambiguous or missing executor inputs", async () => {
+    const { deps } = harness({ runnable: [] });
+    const executor = async () => ({
+      observation: null, nextCursor: null, complete: true, actualUnits: 1,
+    });
+
+    await expect(executeNextSourceUnit(deps, {
+      authorizedTenantId: TENANT, authorizedWorkspaceId: WORKSPACE,
+      workerId: WORKER, leaseMs: 60_000,
+    })).rejects.toMatchObject({ code: "CONNECTOR_INPUT_INVALID" });
+    await expect(executeNextSourceUnit(deps, {
+      authorizedTenantId: TENANT, authorizedWorkspaceId: WORKSPACE,
+      workerId: WORKER, leaseMs: 60_000,
+      execute: executor, resolveExecutor: () => null,
+    })).rejects.toMatchObject({ code: "CONNECTOR_INPUT_INVALID" });
+  });
+
+  it("built-in registry resolves no executor until a fixture dataset binds a card", () => {
+    expect(resolveConnectorFixtureExecutor("google_places_legacy")).toBeNull();
+    expect(resolveConnectorFixtureExecutor("customer_list_csv_upload")).toBeNull();
+    expect(resolveConnectorFixtureExecutor("unknown_card")).toBeNull();
   });
 });

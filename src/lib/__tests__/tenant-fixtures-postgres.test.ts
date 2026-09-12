@@ -45,7 +45,7 @@ describe.runIf(enabled)("canonical tenant fixture PostgreSQL 16 rehearsal", () =
     sql = postgres(parsed.toString(), { max: 1, prepare: false, onnotice: () => undefined });
 
     const migrationReceipt = await installTrackedMigrationSchema(sql);
-    expect(migrationReceipt).toEqual({ discovered: 68, applied: 66, skipped: 2 });
+    expect(migrationReceipt).toEqual({ discovered: 69, applied: 67, skipped: 2 });
     await seedFixtureAuthUsers(sql);
 
     const db = boundedPostgresDbClient(sql);

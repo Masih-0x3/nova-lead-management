@@ -242,7 +242,7 @@ BEGIN
   FROM public.account_qualification_snapshots parent
   WHERE parent.tenant_id = NEW.tenant_id AND parent.workspace_id = NEW.workspace_id
     AND parent.account_id = NEW.account_id
-    AND parent.qualification_sha256 = pg_catalog.substring(from_hash from 8);
+    AND parent.qualification_sha256 = pg_catalog.substring(from_hash, 8);
   IF parent_decision IS NULL THEN
     RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='L05_QUALIFICATION_PARENT_MISSING';
   END IF;

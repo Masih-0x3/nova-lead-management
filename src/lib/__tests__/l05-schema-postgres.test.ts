@@ -1,0 +1,411 @@
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
+import postgres, { type Sql } from "postgres";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+const RUN = process.env.L05_SCHEMA_RUN_DISPOSABLE_TESTS === "1";
+const POSTGRES_16 = "postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20";
+const DATABASE = "l05_schema_rehearsal";
+const TENANT = "00000000-0000-4000-8000-000000000091";
+const WORKSPACE_A = "10000000-0000-4000-8000-000000000091";
+const WORKSPACE_B = "10000000-0000-4000-8000-000000000092";
+const ACCOUNT_A = "20000000-0000-4000-8000-000000000091";
+const ACCOUNT_B = "20000000-0000-4000-8000-000000000092";
+const ACCOUNT_C = "20000000-0000-4000-8000-000000000093";
+const ACTOR = "30000000-0000-4000-8000-000000000091";
+const T0 = "2026-09-15T12:00:00.000Z";
+const T1 = "2026-09-15T12:00:01.000Z";
+const T2 = "2026-09-15T12:00:02.000Z";
+const T3 = "2026-09-15T12:00:03.000Z";
+const SKIPPED = new Set([
+  "20260514161714_supabase_ai_verification_cron.sql",
+  "20260514163203_scheduler_v2_sales_ready_pipeline.sql",
+]);
+
+let container = "";
+let sql: Sql | undefined;
+
+function docker(args: string[], allowFailure = false): string {
+  try {
+    return execFileSync("docker", args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", allowFailure ? "ignore" : "pipe"],
+    }).trim();
+  } catch (error) {
+    if (allowFailure) return "";
+    throw error;
+  }
+}
+
+function waitForPostgres(name: string): void {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    if (docker(["exec", name, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres",
+      "-d", DATABASE, "-Atc", "SELECT 1"], true) === "1") return;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+  }
+  throw new Error(`PostgreSQL did not become ready: ${docker(["logs", name], true)}`);
+}
+
+async function replayAllMigrations(client: Sql): Promise<void> {
+  await client.unsafe("CREATE SCHEMA IF NOT EXISTS auth");
+  await client.unsafe("CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY)");
+  await client.unsafe(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+  END $$`);
+  await client.unsafe(`CREATE TABLE IF NOT EXISTS public.worker_runs (
+    id text PRIMARY KEY, worker_name text NOT NULL, status text NOT NULL DEFAULT 'running',
+    trigger_source text NOT NULL DEFAULT 'unknown', http_status integer,
+    result_json jsonb NOT NULL DEFAULT '{}'::jsonb, error text,
+    started_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  const migrations = readdirSync(resolve("supabase/migrations"))
+    .filter((file) => file.endsWith(".sql")).sort();
+  let applied = 0;
+  for (const file of migrations) {
+    if (SKIPPED.has(file)) continue;
+    await client.unsafe(readFileSync(join("supabase", "migrations", file), "utf8"));
+    applied += 1;
+    if (file === "202605110001_full_schema.sql") {
+      await client.unsafe(`ALTER TABLE public.settings
+        ADD COLUMN IF NOT EXISTS scheduler_ai_verification_enabled integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS scheduler_crawl_enabled integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS scheduler_enrichment_enabled integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS scheduler_artifact_enabled integer NOT NULL DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS scheduler_score_recompute_enabled integer NOT NULL DEFAULT 1`);
+      await client.unsafe(`ALTER TABLE public.leads
+        ADD COLUMN IF NOT EXISTS ai_website_feedback_status text,
+        ADD COLUMN IF NOT EXISTS ai_corrected_website_url text,
+        ADD COLUMN IF NOT EXISTS ai_false_positive_reason text,
+        ADD COLUMN IF NOT EXISTS ai_reviewer_notes text,
+        ADD COLUMN IF NOT EXISTS ai_feedback_at timestamptz`);
+    }
+  }
+  expect({ discovered: migrations.length, applied, skipped: SKIPPED.size })
+    .toEqual({ discovered: 69, applied: 67, skipped: 2 });
+}
+
+async function seedFoundation(client: Sql): Promise<void> {
+  await client.unsafe(`
+    INSERT INTO public.tenants (id, slug, name, status) VALUES ('${TENANT}', 'l05', 'L05 Rehearsal', 'active');
+    INSERT INTO public.workspaces (id, tenant_id, slug, name, status) VALUES
+      ('${WORKSPACE_A}', '${TENANT}', 'l05-a', 'L05 A', 'active'),
+      ('${WORKSPACE_B}', '${TENANT}', 'l05-b', 'L05 B', 'active');
+  `);
+}
+
+function hash(ch: string): string {
+  return ch.repeat(64);
+}
+
+async function insertAccount(client: Sql, accountId: string, workspaceId: string): Promise<void> {
+  await client.unsafe(`INSERT INTO public.canonical_accounts(
+    account_id,tenant_id,workspace_id,version,status,profile_sha256,created_at,updated_at
+  ) VALUES ('${accountId}','${TENANT}','${workspaceId}',1,'active','${hash("a")}','${T0}','${T0}')`);
+}
+
+function planPayload(planId: string, planHash: string): string {
+  return JSON.stringify({
+    planId, tenantId: TENANT, workspaceId: WORKSPACE_A,
+    planHash: `sha256:${planHash}`, status: "plan_only",
+    play: { stableKey: "play.discovery", versionId: `lead-play-version:${hash("e")}`, revision: 1 },
+    tasks: [{ sourceKey: "google_places_legacy" }],
+    limits: { maxAccounts: 10, maxProviderRequests: 10, maxSpendCents: 0 },
+    createdAt: T0,
+  });
+}
+
+async function insertPlan(client: Sql, planId: string): Promise<void> {
+  const planHash = hash("f");
+  await client.unsafe(`INSERT INTO public.discovery_plans(
+    plan_id,tenant_id,workspace_id,plan_sha256,status,play_stable_key,play_version_id,
+    play_revision,source_keys,limits,payload,created_at
+  ) VALUES ('${planId}','${TENANT}','${WORKSPACE_A}','${planHash}','plan_only',
+    'play.discovery','lead-play-version:${hash("e")}',1,'["google_places_legacy"]',
+    '{"maxAccounts":10,"maxProviderRequests":10,"maxSpendCents":0}',
+    '${planPayload(planId, planHash)}'::jsonb,'${T0}')`);
+}
+
+function runPayload(runId: string, planId: string, runHash: string, status: string, at: string): string {
+  return JSON.stringify({
+    runId, tenantId: TENANT, workspaceId: WORKSPACE_A,
+    plan: { planId }, runHash: `sha256:${runHash}`, status, createdAt: T0, updatedAt: at,
+  });
+}
+
+function contactPayload(versionId: string, revision: number, supersedes: string | null, review: {
+  status: string; reviewHash: string;
+}, contentHash: string, versionHash: string): string {
+  return JSON.stringify({
+    versionId, tenantId: TENANT, workspaceId: WORKSPACE_A, accountId: ACCOUNT_A,
+    stableKey: "contact.example", revision, supersedesVersionId: supersedes,
+    review, suppressionDisposition: "clear", freshness: { state: "KNOWN" },
+    identity: { contactPointClass: "work_email" },
+    sourceReceipt: { connectorKey: "customer_list_csv_upload" },
+    contentHash: `sha256:${contentHash}`, versionHash: `sha256:${versionHash}`, createdAt: T0,
+  });
+}
+
+async function insertContact(client: Sql, versionId: string, revision: number, supersedes: string | null): Promise<void> {
+  const contentHash = hash("1"), versionHash = hash("2"), reviewHash = hash("3");
+  await client.unsafe(`INSERT INTO public.contact_record_versions(
+    version_id,tenant_id,workspace_id,account_id,stable_key,revision,supersedes_version_id,
+    review_status,suppression_disposition,freshness_state,contact_point_class,connector_key,
+    content_sha256,version_sha256,review_sha256,payload,created_at
+  ) VALUES ('${versionId}','${TENANT}','${WORKSPACE_A}','${ACCOUNT_A}','contact.example',${revision},
+    ${supersedes ? `'${supersedes}'` : "NULL"},'draft','clear','KNOWN','work_email',
+    'customer_list_csv_upload','${contentHash}','${versionHash}','${reviewHash}',
+    '${contactPayload(versionId, revision, supersedes, { status: "draft", reviewHash: `sha256:${reviewHash}` }, contentHash, versionHash)}'::jsonb,
+    '${T0}')`);
+}
+
+function qualificationPayload(versionId: string, qualHash: string, reviewStatus: string, decision: string, reviewEvents: unknown[]): string {
+  return JSON.stringify({
+    versionId, tenantId: TENANT, workspaceId: WORKSPACE_A, accountId: ACCOUNT_A,
+    playVersionId: `lead-play-version:${hash("e")}`,
+    playContentHash: `sha256:${hash("4")}`, policyHash: `sha256:${hash("5")}`,
+    qualificationHash: `sha256:${qualHash}`, weightedScore: 7200,
+    automatedDecision: "needs_review", decision, reviewStatus,
+    evaluatedAt: T0, reviewEvents,
+  });
+}
+
+async function insertQualification(client: Sql, versionId: string, qualHash: string, reviewStatus: string, decision: string, reviewEvents: unknown[]): Promise<void> {
+  await client.unsafe(`INSERT INTO public.account_qualification_snapshots(
+    version_id,tenant_id,workspace_id,account_id,play_version_id,play_content_sha256,
+    policy_sha256,qualification_sha256,weighted_score,automated_decision,decision,
+    review_status,evaluated_at,payload
+  ) VALUES ('${versionId}','${TENANT}','${WORKSPACE_A}','${ACCOUNT_A}',
+    'lead-play-version:${hash("e")}','${hash("4")}','${hash("5")}','${qualHash}',
+    7200,'needs_review','${decision}','${reviewStatus}','${T0}',
+    '${qualificationPayload(versionId, qualHash, reviewStatus, decision, reviewEvents)}'::jsonb)`);
+}
+
+async function expectDenied(promise: Promise<unknown>, message: string): Promise<void> {
+  await expect(promise).rejects.toMatchObject({ message: expect.stringContaining(message) });
+}
+
+describe.skipIf(!RUN)("L-05 discovery/accounts/contacts/qualification schema on PostgreSQL 16", () => {
+  beforeAll(async () => {
+    container = `novatrade-l05-${randomUUID()}`;
+    docker(["run", "--detach", "--rm", "--name", container, "--publish", "127.0.0.1::5432",
+      "--env", "POSTGRES_PASSWORD=postgres", "--env", `POSTGRES_DB=${DATABASE}`, POSTGRES_16]);
+    waitForPostgres(container);
+    const port = docker(["port", container, "5432/tcp"]).split(":").pop();
+    sql = postgres(`postgres://postgres:postgres@127.0.0.1:${port}/${DATABASE}`,
+      { max: 1, prepare: false, ssl: false, onnotice: () => undefined });
+    await replayAllMigrations(sql);
+    await seedFoundation(sql);
+  }, 120_000);
+
+  afterAll(async () => {
+    await sql?.end({ timeout: 1 });
+    if (container) docker(["rm", "--force", container], true);
+  });
+
+  it("guards canonical accounts against stale updates and cross-scope redirects", async () => {
+    if (!sql) throw new Error("database unavailable");
+    await insertAccount(sql, ACCOUNT_A, WORKSPACE_A);
+    await insertAccount(sql, ACCOUNT_B, WORKSPACE_B);
+    await insertAccount(sql, ACCOUNT_C, WORKSPACE_A);
+
+    await expectDenied(
+      sql.unsafe(`UPDATE public.canonical_accounts SET created_at='${T1}' WHERE account_id='${ACCOUNT_A}'`),
+      "L05_ACCOUNT_IDENTITY_IMMUTABLE",
+    );
+    await expectDenied(
+      sql.unsafe(`UPDATE public.canonical_accounts SET version=0 WHERE account_id='${ACCOUNT_A}'`),
+      "L05_ACCOUNT_STALE_UPDATE",
+    );
+    await expectDenied(
+      sql.unsafe(`UPDATE public.canonical_accounts SET status='merged', redirect_to_account_id='${ACCOUNT_B}',
+        version=2, updated_at='${T1}' WHERE account_id='${ACCOUNT_A}'`),
+      "L05_ACCOUNT_REDIRECT_SCOPE_MISMATCH",
+    );
+    await sql.unsafe(`UPDATE public.canonical_accounts SET status='merged',
+      redirect_to_account_id='${ACCOUNT_C}', version=2, updated_at='${T1}' WHERE account_id='${ACCOUNT_A}'`);
+    const merged = await sql.unsafe(
+      `SELECT status, redirect_to_account_id AS redirect FROM public.canonical_accounts WHERE account_id='${ACCOUNT_A}'`);
+    expect(merged[0]).toMatchObject({ status: "merged", redirect: ACCOUNT_C });
+  });
+
+  it("keeps observations and merge ledger events append-only", async () => {
+    if (!sql) throw new Error("database unavailable");
+    await sql.unsafe(`INSERT INTO public.account_source_observations(
+      observation_id,tenant_id,workspace_id,account_id,source_key,namespace,external_id,
+      observed_at,payload_sha256,provenance_sha256
+    ) VALUES ('obs-1','${TENANT}','${WORKSPACE_A}','${ACCOUNT_C}','google_places_legacy',
+      'places','ext-1','${T0}','${hash("6")}','${hash("7")}')`);
+    await expectDenied(
+      sql.unsafe(`UPDATE public.account_source_observations SET external_id='ext-2' WHERE observation_id='obs-1'`),
+      "L05_RECORD_IMMUTABLE",
+    );
+    await expectDenied(
+      sql.unsafe(`DELETE FROM public.account_source_observations WHERE observation_id='obs-1'`),
+      "L05_RECORD_IMMUTABLE",
+    );
+
+    await sql.unsafe(`INSERT INTO public.account_merge_events(
+      event_id,tenant_id,workspace_id,action,survivor_account_id,retired_account_id,
+      evidence_observation_ids,actor,at,reason
+    ) VALUES ('account-merge-event:${hash("8")}','${TENANT}','${WORKSPACE_A}','merge',
+      '${ACCOUNT_C}','${ACCOUNT_A}','["obs-1"]','{"kind":"human","actorId":"${ACTOR}"}',
+      '${T0}','duplicate account')`);
+    await expectDenied(
+      sql.unsafe(`DELETE FROM public.account_merge_events WHERE event_id='account-merge-event:${hash("8")}'`),
+      "L05_RECORD_IMMUTABLE",
+    );
+  });
+
+  it("enforces run plan scope and only legal run transitions", async () => {
+    if (!sql) throw new Error("database unavailable");
+    const planId = `discovery-plan:${hash("9")}`;
+    const runId = `discovery-run:${hash("0")}`;
+    await insertPlan(sql, planId);
+
+    await expectDenied(
+      sql.unsafe(`INSERT INTO public.discovery_runs(
+        run_id,tenant_id,workspace_id,plan_id,status,run_sha256,payload,created_at,updated_at
+      ) VALUES ('${runId}','${TENANT}','${WORKSPACE_B}','${planId}','planned','${hash("b")}',
+        '${runPayload(runId, planId, hash("b"), "planned", T0)}'::jsonb,'${T0}','${T0}')`),
+      "L05_RUN_PLAN_SCOPE_MISMATCH",
+    );
+
+    await sql.unsafe(`INSERT INTO public.discovery_runs(
+      run_id,tenant_id,workspace_id,plan_id,status,run_sha256,payload,created_at,updated_at
+    ) VALUES ('${runId}','${TENANT}','${WORKSPACE_A}','${planId}','planned','${hash("b")}',
+      '${runPayload(runId, planId, hash("b"), "planned", T0)}'::jsonb,'${T0}','${T0}')`);
+    await expectDenied(
+      sql.unsafe(`UPDATE public.discovery_runs SET status='completed', run_sha256='${hash("c")}',
+        updated_at='${T1}', payload='${runPayload(runId, planId, hash("c"), "completed", T1)}'::jsonb
+        WHERE run_id='${runId}'`),
+      "L05_RUN_INVALID_TRANSITION",
+    );
+    await sql.unsafe(`UPDATE public.discovery_runs SET status='running', run_sha256='${hash("c")}',
+      updated_at='${T1}', payload='${runPayload(runId, planId, hash("c"), "running", T1)}'::jsonb
+      WHERE run_id='${runId}'`);
+    await sql.unsafe(`UPDATE public.discovery_runs SET status='completed', run_sha256='${hash("d")}',
+      updated_at='${T2}', payload='${runPayload(runId, planId, hash("d"), "completed", T2)}'::jsonb
+      WHERE run_id='${runId}'`);
+    await expectDenied(
+      sql.unsafe(`UPDATE public.discovery_runs SET run_sha256='${hash("e")}', updated_at='${T3}' WHERE run_id='${runId}'`),
+      "L05_RUN_TERMINAL",
+    );
+    await expectDenied(
+      sql.unsafe(`DELETE FROM public.discovery_plans WHERE plan_id='${planId}'`),
+      "L05_RECORD_IMMUTABLE",
+    );
+  });
+
+  it("chains contact versions in scope and orders review transitions", async () => {
+    if (!sql) throw new Error("database unavailable");
+    const v1 = `contact-version:${hash("a")}`;
+    const v2 = `contact-version:${hash("b")}`;
+    const v3 = `contact-version:${hash("c")}`;
+    await insertContact(sql, v1, 1, null);
+    await insertContact(sql, v2, 2, v1);
+    await expectDenied(insertContact(sql, v3, 3, `contact-version:${hash("d")}`), "L05_CONTACT_CHAIN_MISMATCH");
+
+    await expectDenied(
+      sql.unsafe(`UPDATE public.contact_record_versions SET review_status='approved',
+        review_sha256='${hash("4")}' WHERE version_id='${v1}'`),
+      "L05_REVIEW_INVALID_TRANSITION",
+    );
+    await expectDenied(
+      sql.unsafe(`UPDATE public.contact_record_versions SET review_status='in_review',
+        review_sha256='${hash("3")}' WHERE version_id='${v1}'`),
+      "L05_REVIEW_STALE_UPDATE",
+    );
+    await sql.unsafe(`UPDATE public.contact_record_versions SET review_status='in_review',
+      review_sha256='${hash("5")}',
+      payload='${contactPayload(v1, 1, null, { status: "in_review", reviewHash: `sha256:${hash("5")}` }, hash("1"), hash("2"))}'::jsonb
+      WHERE version_id='${v1}'`);
+    await expectDenied(
+      sql.unsafe(`DELETE FROM public.contact_record_versions WHERE version_id='${v1}'`),
+      "L05_RECORD_IMMUTABLE",
+    );
+  });
+
+  it("enforces the append-only qualification chain and fork prevention", async () => {
+    if (!sql) throw new Error("database unavailable");
+    const parentHash = hash("6");
+    const parent = `account-qualification:${parentHash}`;
+    await insertQualification(sql, parent, parentHash, "unreviewed", "needs_review", []);
+
+    await expectDenied(
+      insertQualification(sql, `account-qualification:${hash("7")}`, hash("7"), "unreviewed", "qualified", []),
+      "L05_QUALIFICATION_UNREVIEWED_MALFORMED",
+    );
+    await expectDenied(
+      insertQualification(sql, `account-qualification:${hash("8")}`, hash("8"), "confirmed", "needs_review", [
+        { fromQualificationHash: `sha256:${hash("f")}` },
+      ]),
+      "L05_QUALIFICATION_PARENT_MISSING",
+    );
+
+    const child = `account-qualification:${hash("9")}`;
+    await insertQualification(sql, child, hash("9"), "confirmed", "needs_review", [
+      { fromQualificationHash: `sha256:${parentHash}` },
+    ]);
+    await expect(
+      insertQualification(sql, `account-qualification:${hash("0")}`, hash("0"), "confirmed", "needs_review", [
+        { fromQualificationHash: `sha256:${parentHash}` },
+      ]),
+    ).rejects.toMatchObject({ code: "23505" });
+    await expectDenied(
+      sql.unsafe(`UPDATE public.account_qualification_snapshots SET weighted_score=0 WHERE version_id='${parent}'`),
+      "L05_RECORD_IMMUTABLE",
+    );
+  });
+
+  it("guards review queue item transitions and keeps events append-only", async () => {
+    if (!sql) throw new Error("database unavailable");
+    const queueId = `review-queue:${hash("a")}`;
+    const itemId = `review-item:${hash("b")}`;
+    await sql.unsafe(`INSERT INTO public.review_queue_documents(
+      queue_id,tenant_id,workspace_id,queue_sha256,payload,created_at,updated_at
+    ) VALUES ('${queueId}','${TENANT}','${WORKSPACE_A}','${hash("c")}',
+      '${JSON.stringify({ queueId, tenantId: TENANT, workspaceId: WORKSPACE_A, queueHash: `sha256:${hash("c")}` })}'::jsonb,
+      '${T0}','${T0}')`);
+    await expectDenied(
+      sql.unsafe(`UPDATE public.review_queue_documents SET queue_sha256='${hash("c")}', updated_at='${T1}' WHERE queue_id='${queueId}'`),
+      "L05_QUEUE_STALE_UPDATE",
+    );
+
+    await sql.unsafe(`INSERT INTO public.review_queue_items(
+      item_id,queue_id,tenant_id,workspace_id,kind,subject,priority,reason,uncertainty_ids,
+      status,enqueued_at,updated_at
+    ) VALUES ('${itemId}','${queueId}','${TENANT}','${WORKSPACE_A}','qualification_review',
+      '${JSON.stringify({ subjectId: ACCOUNT_A, versionId: "v-1", contentHash: `sha256:${hash("d")}` })}'::jsonb,
+      'normal','needs review','[]','queued','${T0}','${T0}')`);
+    await sql.unsafe(`INSERT INTO public.review_queue_events(
+      queue_id,sequence,tenant_id,workspace_id,item_id,action,at,reason,payload
+    ) VALUES ('${queueId}',1,'${TENANT}','${WORKSPACE_A}','${itemId}','enqueue','${T0}','queued','{}')`);
+
+    await expectDenied(
+      sql.unsafe(`UPDATE public.review_queue_items SET status='resolved', claimed_by='${ACTOR}',
+        resolution='{}', updated_at='${T1}' WHERE queue_id='${queueId}' AND item_id='${itemId}'`),
+      "L05_QUEUE_ITEM_INVALID_TRANSITION",
+    );
+    await sql.unsafe(`UPDATE public.review_queue_items SET status='claimed', claimed_by='${ACTOR}',
+      lease_expires_at='${T3}', updated_at='${T1}' WHERE queue_id='${queueId}' AND item_id='${itemId}'`);
+    await sql.unsafe(`UPDATE public.review_queue_items SET status='resolved',
+      resolution='{"outcome":"confirmed"}', updated_at='${T2}' WHERE queue_id='${queueId}' AND item_id='${itemId}'`);
+    await expectDenied(
+      sql.unsafe(`UPDATE public.review_queue_items SET status='queued', updated_at='${T3}'
+        WHERE queue_id='${queueId}' AND item_id='${itemId}'`),
+      "L05_QUEUE_ITEM_TERMINAL",
+    );
+    await expectDenied(
+      sql.unsafe(`DELETE FROM public.review_queue_events WHERE queue_id='${queueId}' AND sequence=1`),
+      "L05_RECORD_IMMUTABLE",
+    );
+    await expectDenied(
+      sql.unsafe(`DELETE FROM public.review_queue_documents WHERE queue_id='${queueId}'`),
+      "L05_RECORD_IMMUTABLE",
+    );
+  });
+});
