@@ -218,29 +218,150 @@ function dbClient(client: Sql): DbClient {
   };
 }
 
-// L-04 strategy contract fixture: the columns the play-authority port reads,
-// pinned to 20260914000100_add_l04_understanding_strategy_foundation.sql on the
-// Masih-0x3/nova-l04-strategy branch. Kept minimal (no icp/understanding FKs)
-// because the L-04 migration ships with its own lane.
+/**
+ * Contract-pinned subset of L-04's real migration
+ * `20260914000100_add_l04_understanding_strategy_foundation.sql`: the full
+ * column/check shape of the two tables the play-authority port reads plus the
+ * FK parents needed to insert them. `IF NOT EXISTS` keeps this a no-op once
+ * the real L-04 migration is replayed — inserts below satisfy the real
+ * constraints either way.
+ */
 const L04_CONTRACT_DDL = `
+CREATE TABLE IF NOT EXISTS public.business_understanding_versions (
+  version_id pg_catalog.text CONSTRAINT business_understanding_versions_pkey PRIMARY KEY
+    CONSTRAINT business_understanding_versions_id_chk
+    CHECK (version_id ~ '^understanding-version:[a-f0-9]{64}$'),
+  tenant_id pg_catalog.uuid NOT NULL,
+  workspace_id pg_catalog.uuid,
+  proposal_ref pg_catalog.text NOT NULL
+    CONSTRAINT business_understanding_versions_proposal_ref_chk
+    CHECK (proposal_ref ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$'),
+  revision pg_catalog.int4 NOT NULL
+    CONSTRAINT business_understanding_versions_revision_chk CHECK (revision BETWEEN 1 AND 1000000),
+  supersedes_proposal_ref pg_catalog.text,
+  supersedes_version_id pg_catalog.text,
+  content_hash pg_catalog.text NOT NULL
+    CONSTRAINT business_understanding_versions_content_hash_chk CHECK (content_hash ~ '^sha256:[a-f0-9]{64}$'),
+  claim_set_hash pg_catalog.text NOT NULL
+    CONSTRAINT business_understanding_versions_claim_set_hash_chk CHECK (claim_set_hash ~ '^sha256:[a-f0-9]{64}$'),
+  review_hash pg_catalog.text NOT NULL
+    CONSTRAINT business_understanding_versions_review_hash_chk CHECK (review_hash ~ '^sha256:[a-f0-9]{64}$'),
+  status pg_catalog.text NOT NULL
+    CONSTRAINT business_understanding_versions_status_chk
+    CHECK (status IN ('draft','in_review','approved','rejected','superseded')),
+  source pg_catalog.jsonb NOT NULL,
+  review pg_catalog.jsonb NOT NULL,
+  created_at pg_catalog.timestamptz(3) NOT NULL,
+  updated_at pg_catalog.timestamptz(3) NOT NULL,
+  CONSTRAINT business_understanding_versions_tenant_fkey
+    FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT business_understanding_versions_workspace_fkey
+    FOREIGN KEY (tenant_id,workspace_id) REFERENCES public.workspaces(tenant_id,id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT business_understanding_versions_supersedes_fkey
+    FOREIGN KEY (supersedes_version_id) REFERENCES public.business_understanding_versions(version_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT business_understanding_versions_supersede_chk CHECK (
+    (revision=1 AND supersedes_proposal_ref IS NULL AND supersedes_version_id IS NULL)
+    OR (revision>1 AND supersedes_proposal_ref IS NOT NULL AND supersedes_version_id IS NOT NULL)
+  ),
+  CONSTRAINT business_understanding_versions_time_chk CHECK (updated_at >= created_at)
+);
+CREATE TABLE IF NOT EXISTS public.icp_versions (
+  version_id pg_catalog.text CONSTRAINT icp_versions_pkey PRIMARY KEY
+    CONSTRAINT icp_versions_id_chk CHECK (version_id ~ '^icp-version:[a-f0-9]{64}$'),
+  tenant_id pg_catalog.uuid NOT NULL,
+  workspace_id pg_catalog.uuid,
+  stable_key pg_catalog.text NOT NULL
+    CONSTRAINT icp_versions_stable_key_chk CHECK (stable_key ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$'),
+  revision pg_catalog.int4 NOT NULL
+    CONSTRAINT icp_versions_revision_chk CHECK (revision BETWEEN 1 AND 1000000),
+  supersedes_version_id pg_catalog.text,
+  content_hash pg_catalog.text NOT NULL
+    CONSTRAINT icp_versions_content_hash_chk CHECK (content_hash ~ '^sha256:[a-f0-9]{64}$'),
+  understanding_version_id pg_catalog.text NOT NULL,
+  review_hash pg_catalog.text NOT NULL
+    CONSTRAINT icp_versions_review_hash_chk CHECK (review_hash ~ '^sha256:[a-f0-9]{64}$'),
+  status pg_catalog.text NOT NULL
+    CONSTRAINT icp_versions_status_chk
+    CHECK (status IN ('draft','in_review','approved','rejected','superseded')),
+  source pg_catalog.jsonb NOT NULL,
+  review pg_catalog.jsonb NOT NULL,
+  created_at pg_catalog.timestamptz(3) NOT NULL,
+  updated_at pg_catalog.timestamptz(3) NOT NULL,
+  CONSTRAINT icp_versions_tenant_fkey
+    FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT icp_versions_workspace_fkey
+    FOREIGN KEY (tenant_id,workspace_id) REFERENCES public.workspaces(tenant_id,id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT icp_versions_supersedes_fkey
+    FOREIGN KEY (supersedes_version_id) REFERENCES public.icp_versions(version_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT icp_versions_understanding_fkey
+    FOREIGN KEY (understanding_version_id) REFERENCES public.business_understanding_versions(version_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT icp_versions_supersede_chk CHECK (
+    (revision=1 AND supersedes_version_id IS NULL)
+    OR (revision>1 AND supersedes_version_id IS NOT NULL)
+  ),
+  CONSTRAINT icp_versions_time_chk CHECK (updated_at >= created_at)
+);
 CREATE TABLE IF NOT EXISTS public.lead_play_versions (
-  version_id text PRIMARY KEY,
-  tenant_id uuid NOT NULL,
-  workspace_id uuid,
-  stable_key text NOT NULL,
-  source jsonb NOT NULL,
-  review jsonb NOT NULL,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
+  version_id pg_catalog.text CONSTRAINT lead_play_versions_pkey PRIMARY KEY
+    CONSTRAINT lead_play_versions_id_chk CHECK (version_id ~ '^lead-play-version:[a-f0-9]{64}$'),
+  tenant_id pg_catalog.uuid NOT NULL,
+  workspace_id pg_catalog.uuid,
+  stable_key pg_catalog.text NOT NULL
+    CONSTRAINT lead_play_versions_stable_key_chk CHECK (stable_key ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$'),
+  revision pg_catalog.int4 NOT NULL
+    CONSTRAINT lead_play_versions_revision_chk CHECK (revision BETWEEN 1 AND 1000000),
+  supersedes_version_id pg_catalog.text,
+  icp_version_id pg_catalog.text NOT NULL,
+  understanding_version_id pg_catalog.text NOT NULL,
+  content_hash pg_catalog.text NOT NULL
+    CONSTRAINT lead_play_versions_content_hash_chk CHECK (content_hash ~ '^sha256:[a-f0-9]{64}$'),
+  review_hash pg_catalog.text NOT NULL
+    CONSTRAINT lead_play_versions_review_hash_chk CHECK (review_hash ~ '^sha256:[a-f0-9]{64}$'),
+  status pg_catalog.text NOT NULL
+    CONSTRAINT lead_play_versions_status_chk
+    CHECK (status IN ('draft','in_review','approved','rejected','superseded')),
+  source pg_catalog.jsonb NOT NULL,
+  review pg_catalog.jsonb NOT NULL,
+  created_at pg_catalog.timestamptz(3) NOT NULL,
+  updated_at pg_catalog.timestamptz(3) NOT NULL,
+  CONSTRAINT lead_play_versions_tenant_fkey
+    FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT lead_play_versions_workspace_fkey
+    FOREIGN KEY (tenant_id,workspace_id) REFERENCES public.workspaces(tenant_id,id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT lead_play_versions_supersedes_fkey
+    FOREIGN KEY (supersedes_version_id) REFERENCES public.lead_play_versions(version_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT lead_play_versions_icp_fkey
+    FOREIGN KEY (icp_version_id) REFERENCES public.icp_versions(version_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT lead_play_versions_understanding_fkey
+    FOREIGN KEY (understanding_version_id) REFERENCES public.business_understanding_versions(version_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT lead_play_versions_supersede_chk CHECK (
+    (revision=1 AND supersedes_version_id IS NULL)
+    OR (revision>1 AND supersedes_version_id IS NOT NULL)
+  ),
+  CONSTRAINT lead_play_versions_time_chk CHECK (updated_at >= created_at)
 );
 CREATE TABLE IF NOT EXISTS public.lead_play_activation_states (
-  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  tenant_id uuid NOT NULL,
-  workspace_id uuid,
-  stable_key text NOT NULL,
-  state jsonb NOT NULL,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
+  id bigint GENERATED ALWAYS AS IDENTITY CONSTRAINT lead_play_activation_states_pkey PRIMARY KEY,
+  tenant_id pg_catalog.uuid NOT NULL,
+  workspace_id pg_catalog.uuid,
+  stable_key pg_catalog.text NOT NULL
+    CONSTRAINT lead_play_activation_states_key_chk CHECK (stable_key ~ '^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$'),
+  state_hash pg_catalog.text NOT NULL
+    CONSTRAINT lead_play_activation_states_hash_chk CHECK (state_hash ~ '^sha256:[a-f0-9]{64}$'),
+  state pg_catalog.jsonb NOT NULL,
+  created_at pg_catalog.timestamptz(3) NOT NULL,
+  updated_at pg_catalog.timestamptz(3) NOT NULL,
+  CONSTRAINT lead_play_activation_states_tenant_fkey
+    FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT lead_play_activation_states_workspace_fkey
+    FOREIGN KEY (tenant_id,workspace_id) REFERENCES public.workspaces(tenant_id,id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+  CONSTRAINT lead_play_activation_states_time_chk CHECK (updated_at >= created_at)
 );`;
 
 describe.skipIf(!RUN)("L-05 discovery/accounts/contacts/qualification schema on PostgreSQL 16", () => {
@@ -469,20 +590,38 @@ describe.skipIf(!RUN)("L-05 discovery/accounts/contacts/qualification schema on 
     await sql.unsafe(L04_CONTRACT_DDL);
     const port = createPostgresPlayAuthorityPort(dbClient(sql));
 
+    const understandingId = `understanding-version:${hash("d")}`;
+    const icpId = `icp-version:${hash("e")}`;
     const wsPlay = `lead-play-version:${hash("a")}`;
     const tenantPlay = `lead-play-version:${hash("b")}`;
+    await sql.unsafe(`INSERT INTO public.business_understanding_versions(
+      version_id,tenant_id,workspace_id,proposal_ref,revision,content_hash,claim_set_hash,
+      review_hash,status,source,review,created_at,updated_at
+    ) VALUES ('${understandingId}','${TENANT}','${WORKSPACE_A}','prop.a',1,
+      'sha256:${hash("d")}','sha256:${hash("e")}','sha256:${hash("f")}','approved',
+      '{}','{}','${T0}','${T0}')`);
+    await sql.unsafe(`INSERT INTO public.icp_versions(
+      version_id,tenant_id,workspace_id,stable_key,revision,content_hash,
+      understanding_version_id,review_hash,status,source,review,created_at,updated_at
+    ) VALUES ('${icpId}','${TENANT}','${WORKSPACE_A}','icp.a',1,'sha256:${hash("a")}',
+      '${understandingId}','sha256:${hash("b")}','approved','{}','{}','${T0}','${T0}')`);
     await sql.unsafe(`INSERT INTO public.lead_play_versions(
-      version_id,tenant_id,workspace_id,stable_key,source,review,created_at,updated_at
+      version_id,tenant_id,workspace_id,stable_key,revision,icp_version_id,
+      understanding_version_id,content_hash,review_hash,status,source,review,created_at,updated_at
     ) VALUES
-      ('${wsPlay}','${TENANT}','${WORKSPACE_A}','play.ws','{"proposalVersion":1,"scope":"ws"}',
-        '{"reviewVersion":1,"status":"approved"}','${T0}','${T0}'),
-      ('${tenantPlay}','${TENANT}',NULL,'play.tenant','{"proposalVersion":1,"scope":"tenant"}',
-        '{"reviewVersion":1,"status":"approved"}','${T0}','${T0}')`);
+      ('${wsPlay}','${TENANT}','${WORKSPACE_A}','play.ws',1,'${icpId}','${understandingId}',
+        'sha256:${hash("a")}','sha256:${hash("b")}','approved',
+        '{"proposalVersion":1,"scope":"ws"}','{"reviewVersion":1,"status":"approved"}','${T0}','${T0}'),
+      ('${tenantPlay}','${TENANT}',NULL,'play.tenant',1,'${icpId}','${understandingId}',
+        'sha256:${hash("c")}','sha256:${hash("d")}','approved',
+        '{"proposalVersion":1,"scope":"tenant"}','{"reviewVersion":1,"status":"approved"}','${T0}','${T0}')`);
     await sql.unsafe(`INSERT INTO public.lead_play_activation_states(
-      tenant_id,workspace_id,stable_key,state,created_at,updated_at
+      tenant_id,workspace_id,stable_key,state_hash,state,created_at,updated_at
     ) VALUES
-      ('${TENANT}','${WORKSPACE_A}','play.ws','{"stateVersion":1,"stableKey":"play.ws"}','${T0}','${T0}'),
-      ('${TENANT}',NULL,'play.tenant','{"stateVersion":1,"stableKey":"play.tenant"}','${T0}','${T0}')`);
+      ('${TENANT}','${WORKSPACE_A}','play.ws','sha256:${hash("a")}',
+        '{"stateVersion":1,"stableKey":"play.ws"}','${T0}','${T0}'),
+      ('${TENANT}',NULL,'play.tenant','sha256:${hash("b")}',
+        '{"stateVersion":1,"stableKey":"play.tenant"}','${T0}','${T0}')`);
 
     const wsAuthority = await port.loadPlayAuthority({
       tenantId: TENANT, workspaceId: WORKSPACE_A, playVersionId: wsPlay,
