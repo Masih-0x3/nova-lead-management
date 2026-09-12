@@ -14,7 +14,7 @@ export default defineConfig({
     },
     {
       name: "authenticated-read-only",
-      testMatch: /(launch-auth-screenshots|settings-verify|smoke-ui|smoke|smoke-researcher)\.spec\.ts/,
+      testMatch: /(launch-auth-screenshots|settings-verify|smoke-ui|smoke|smoke-researcher|workflow-surfaces)\.spec\.ts/,
     },
     ...(includeMutatingProject
       ? [{

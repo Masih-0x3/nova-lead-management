@@ -67,7 +67,7 @@ test.describe("Workflow surfaces (admin)", () => {
     await expect(page.getByRole("heading", { name: "Confirm the tenant scope", exact: true })).toBeVisible({ timeout: 15000 });
     for (const step of ["Policy", "Materials", "Progress"]) {
       await page.goto(`${BASE_URL}/onboarding?step=${step.toLowerCase()}`, { waitUntil: "networkidle" });
-      await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
+      await expect(page.locator("main").getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15000 });
     }
   });
 
@@ -76,7 +76,7 @@ test.describe("Workflow surfaces (admin)", () => {
     await expect(page.getByRole("heading", { name: "Tenant administration" })).toBeVisible({ timeout: 15000 });
     for (const section of ["Tenant overview", "Tenant lifecycle", "Members", "Tenant policy", "Connector governance", "Tenant audit", "Data lifecycle & support access"]) {
       await expect(
-        page.getByRole("heading", { name: section }),
+        page.getByRole("heading", { name: section, exact: true }),
         `/tenancy must render the ${section} section`,
       ).toBeVisible();
     }
@@ -117,9 +117,10 @@ test.describe("Workflow surfaces (admin)", () => {
         if (!(el instanceof HTMLElement)) return null;
         const name = el.getAttribute("aria-label") ?? el.textContent ?? el.getAttribute("title") ?? el.tagName;
         const rect = el.getBoundingClientRect();
-        return { name: name.trim().slice(0, 80), visible: rect.width > 0 && rect.height > 0 };
+        return { name: name.trim().slice(0, 80), tag: el.tagName, visible: rect.width > 0 && rect.height > 0 };
       });
       if (focused === null) break;
+      if (focused.name === "" && focused.tag === "NEXTJS-PORTAL") continue;
       expect(focused.visible, `focused control "${focused.name}" must be visible`).toBe(true);
     }
   });
