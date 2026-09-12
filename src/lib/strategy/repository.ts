@@ -236,7 +236,7 @@ export class PostgresStrategyRepository implements StrategyRepository {
 
   async appendIcpVersion(record: StoredIcpVersion): Promise<"created" | "replayed" | "conflict"> {
     const row = await this.db.prepare(
-      "SELECT kind FROM public.novatrade_l04_append_icp_version(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "SELECT kind FROM public.novatrade_l04_append_icp_version(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ).get<WriteKind>(
       record.tenantId,
       record.workspaceId,
@@ -274,7 +274,7 @@ export class PostgresStrategyRepository implements StrategyRepository {
       event.to,
       review.reviewHash,
       JSON.stringify(review),
-      JSON.stringify(event),
+      JSON.stringify({ ...event, sequence: review.events.length }),
       event.at,
     );
     return row?.kind === "updated" ? "updated"
@@ -314,7 +314,7 @@ export class PostgresStrategyRepository implements StrategyRepository {
     record: StoredLeadPlayVersion,
   ): Promise<"created" | "replayed" | "conflict"> {
     const row = await this.db.prepare(
-      "SELECT kind FROM public.novatrade_l04_append_lead_play_version(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "SELECT kind FROM public.novatrade_l04_append_lead_play_version(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ).get<WriteKind>(
       record.tenantId,
       record.workspaceId,
@@ -353,7 +353,7 @@ export class PostgresStrategyRepository implements StrategyRepository {
       event.to,
       review.reviewHash,
       JSON.stringify(review),
-      JSON.stringify(event),
+      JSON.stringify({ ...event, sequence: review.events.length }),
       event.at,
     );
     return row?.kind === "updated" ? "updated"
@@ -364,7 +364,7 @@ export class PostgresStrategyRepository implements StrategyRepository {
     record: StoredLeadPlaySimulation,
   ): Promise<"created" | "replayed" | "conflict"> {
     const row = await this.db.prepare(
-      "SELECT kind FROM public.novatrade_l04_append_lead_play_simulation(?,?,?,?,?,?,?,?)",
+      "SELECT kind FROM public.novatrade_l04_append_lead_play_simulation(?,?,?,?,?,?,?,?,?)",
     ).get<WriteKind>(
       record.tenantId,
       record.workspaceId,
@@ -406,7 +406,7 @@ export class PostgresStrategyRepository implements StrategyRepository {
     record: StoredLeadPlaySimulationReview,
   ): Promise<"created" | "replayed" | "conflict"> {
     const row = await this.db.prepare(
-      "SELECT kind FROM public.novatrade_l04_append_lead_play_simulation_review(?,?,?,?,?,?,?)",
+      "SELECT kind FROM public.novatrade_l04_append_lead_play_simulation_review(?,?,?,?,?,?,?,?)",
     ).get<WriteKind>(
       record.tenantId,
       record.workspaceId,

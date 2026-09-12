@@ -546,7 +546,7 @@ export function createPostgresConnectorCommandRepository(db: DbClient): Connecto
           lease_token_hash = NULL, lease_worker_hash = NULL, lease_acquired_at = NULL,
           lease_heartbeat_at = NULL, lease_expires_at = NULL,
           ended_at = CASE WHEN ? IN ('page_complete','completed','cancelled','blocked','failed')
-            THEN ? ELSE NULL END,
+            THEN ?::pg_catalog.timestamptz ELSE NULL END,
           updated_at = pg_catalog.statement_timestamp()
           WHERE id = ? AND run_id = ? AND tenant_id = ?
             AND (workspace_id IS NOT DISTINCT FROM ?)
@@ -598,8 +598,8 @@ export function createPostgresConnectorCommandRepository(db: DbClient): Connecto
       timestamp(record.createdAt);
       const inserted = await db.prepare(
         `INSERT INTO public.source_usage_settlements
-          (id, tenant_id, workspace_id, run_id, unit_id, reservation_id, actual_units, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          (id, tenant_id, workspace_id, run_id, unit_id, reservation_id, status, actual_units, settled_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'settled', ?, ?)
           ON CONFLICT (id) DO NOTHING RETURNING id`,
       ).all(
         record.id, record.tenantId, record.workspaceId, record.runId, record.unitId,
@@ -618,7 +618,7 @@ export function createPostgresConnectorCommandRepository(db: DbClient): Connecto
           status = ?,
           started_at = CASE WHEN started_at IS NULL THEN ? ELSE started_at END,
           ended_at = CASE WHEN ? IN ('completed','failed','cancelled','blocked','killed')
-            THEN ? ELSE NULL END,
+            THEN ?::pg_catalog.timestamptz ELSE NULL END,
           error_code = ?, result_ref = ?,
           cancel_requested_at = CASE WHEN ? = 'cancelled' AND cancel_requested_at IS NULL
             THEN ? ELSE cancel_requested_at END,

@@ -747,6 +747,12 @@ function normalizePostgresQuery(query: string): string {
     .replace(/julianday\(([^)]+)\)\s*>\s*julianday\(([^)]+)\)/g, "($1)::timestamptz > ($2)::timestamptz")
     .replace(/julianday\(([^)]+)\)\s*<=\s*julianday\(([^)]+)\)/g, "($1)::timestamptz <= ($2)::timestamptz");
 
+  // The postgres.js driver infers a jsonb parameter type from a literal `?::jsonb`
+  // cast and JSON-encodes the bound value. Repositories already serialize via
+  // jsonText(), which would double-encode; routing the cast through ::text keeps
+  // the parameter text-typed so the server applies the jsonb cast itself.
+  normalized = normalized.replace(/\?::jsonb/g, "?::text::jsonb");
+
   let index = 0;
   normalized = normalized.replace(/\?/g, () => `$${++index}`);
   return normalized;

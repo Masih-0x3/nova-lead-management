@@ -408,7 +408,7 @@ function contentPayload(record: Pick<OutcomeRecord,
   return record;
 }
 
-function parseOutcomeRecord(value: unknown): OutcomeRecord | null {
+export function parseOutcomeRecord(value: unknown): OutcomeRecord | null {
   const record = exactRecord(value, RECORD_FIELDS);
   if (!record || record.schemaVersion !== OUTCOME_RECORD_SCHEMA_VERSION) return null;
   const scope = parseScope(record);

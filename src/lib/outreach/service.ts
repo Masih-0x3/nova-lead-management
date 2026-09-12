@@ -373,14 +373,23 @@ export type GenerateOutreachDraftInput = Readonly<{
   actorId: string;
 }>;
 
-export type GeneratedOutreachDraft = Readonly<{
-  draft: OutreachDraft;
-  persisted: "created" | "replayed";
-  agentRunId: string;
-  agentResultRef: string;
-  stableKey: string;
-  revision: number;
-}>;
+export type GeneratedOutreachDraft =
+  | Readonly<{
+    draft: OutreachDraft;
+    persisted: "created" | "replayed";
+    agentRunId: string;
+    agentResultRef: string;
+    stableKey: string;
+    revision: number;
+  }>
+  | Readonly<{
+    draft: null;
+    persisted: "queued";
+    agentRunId: string;
+    agentResultRef: null;
+    stableKey: string;
+    revision: number;
+  }>;
 
 export async function generateOutreachDraft(
   deps: OutreachServiceDeps,
@@ -503,6 +512,20 @@ export async function generateOutreachDraft(
       deps.runtime,
     );
     if (!claimed.ok) {
+      if (claimed.code === "RUN_LEASE_CONFLICT") {
+        // Claim/execute are worker-lease gated; a member context cannot hold
+        // the dispatch lease. Returning "queued" (not throwing) commits the
+        // run so the agent_runtime worker route can claim it; a retry of this
+        // request deduplicates to the finished run and persists the draft.
+        return Object.freeze({
+          draft: null,
+          persisted: "queued" as const,
+          agentRunId: run.id,
+          agentResultRef: null,
+          stableKey: stableKey ?? `draft:${run.id}`,
+          revision,
+        });
+      }
       throw new OutreachServiceError(
         "OUTREACH_GENERATION_FAILED", `The drafting run could not be claimed (${claimed.code}).`);
     }

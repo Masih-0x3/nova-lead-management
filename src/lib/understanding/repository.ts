@@ -123,7 +123,7 @@ export class PostgresUnderstandingRepository implements UnderstandingRepository 
   ): Promise<"created" | "replayed" | "conflict"> {
     const review = record.review;
     const row = await this.db.prepare(
-      "SELECT kind FROM public.novatrade_l04_append_understanding_version(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "SELECT kind FROM public.novatrade_l04_append_understanding_version(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ).get<{ kind?: unknown }>(
       record.tenantId,
       record.workspaceId,
@@ -162,7 +162,7 @@ export class PostgresUnderstandingRepository implements UnderstandingRepository 
       event.to,
       review.reviewHash,
       JSON.stringify(review),
-      JSON.stringify(event),
+      JSON.stringify({ ...event, sequence: review.events.length }),
       event.at,
     );
     return row?.kind === "updated" ? "updated"

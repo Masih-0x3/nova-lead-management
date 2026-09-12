@@ -2071,6 +2071,7 @@ export function isSchedulerWorkerEnabled(settings: Settings, workerName: Schedul
   if (workerName === "enrichment") return settings.scheduler_enrichment_enabled;
   if (workerName === "artifact") return settings.scheduler_artifact_enabled;
   if (workerName === "score_recompute") return settings.scheduler_score_recompute_enabled;
+  if (workerName === "agent_runtime") return true;
   return settings.scheduler_connector_execution_enabled;
 }
 
@@ -2265,6 +2266,14 @@ async function getSchedulerHealthInternal(): Promise<SchedulerHealth> {
       failed: 0,
       canceled: 0,
     },
+    agent_runtime: {
+      total: 0,
+      pending: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      canceled: 0,
+    },
   };
 
   const healthWorkers: SchedulerWorkerHealth[] = [];
@@ -2438,7 +2447,8 @@ function parseWorkerRunRow(row: Record<string, unknown>): WorkerRun {
 }
 
 function normalizeSchedulerWorkerName(value: unknown): SchedulerWorkerName {
-  if (value === "crawl" || value === "enrichment" || value === "artifact" || value === "score_recompute") return value;
+  if (value === "crawl" || value === "enrichment" || value === "artifact" || value === "score_recompute"
+    || value === "connector_execution" || value === "agent_runtime") return value;
   return "ai_verification";
 }
 

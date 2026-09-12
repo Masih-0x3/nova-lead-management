@@ -1,15 +1,12 @@
-import { createHash } from "node:crypto";
 import { isProxy } from "node:util/types";
 
 import type { DbClient } from "@/lib/db";
 import {
-  buildOutcomeRecord,
+  parseOutcomeRecord,
   type OutcomeRecord,
 } from "@/lib/outcomes/outcome-record";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9:._/-]{0,254}$/u;
-const HASH = /^sha256:[0-9a-f]{64}$/u;
 const VERSION_ID = /^outcome-version:[0-9a-f]{64}$/u;
 const PLAY_VERSION = /^lead-play-version:[0-9a-f]{64}$/u;
 const DRAFT_VERSION = /^outreach-draft-version:[0-9a-f]{64}$/u;
@@ -83,97 +80,15 @@ function json(value: unknown): unknown {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
 
-function hashJson(value: unknown): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex")}`;
-}
-
 /**
- * Recomputes the stored record's content hash from its payload fields, in
- * the exact key order the domain builder hashed them. Works for every
- * revision because every hashed field lives inside the payload itself.
- */
-function recomputeContentHash(candidate: OutcomeRecord): string {
-  const base = {
-    tenantId: candidate.tenantId,
-    workspaceId: candidate.workspaceId,
-    accountId: candidate.accountId,
-    playVersionId: candidate.playVersionId,
-    stableKey: candidate.stableKey,
-    revision: candidate.revision,
-    supersedesVersionId: candidate.supersedesVersionId,
-    outcome: candidate.outcome,
-    channel: candidate.channel,
-    bounceClassification: candidate.bounceClassification,
-    occurredAt: candidate.occurredAt,
-    recordedAt: candidate.recordedAt,
-    notes: candidate.notes,
-    source: candidate.source,
-    recordedBy: candidate.recordedBy,
-    outreachDraftVersionRef: candidate.outreachDraftVersionRef,
-    attribution: candidate.attribution,
-    audit: candidate.audit,
-  };
-  return hashJson(base);
-}
-
-/**
- * Re-derives the version identity of a stored outcome payload. Revision-1
- * records are fully rebuilt through the domain builder; later revisions are
- * verified by recomputing the content and version hashes (the predecessor
- * is bound by the supersedes FK and revalidated by the report builder).
+ * Re-derives the version identity of a stored outcome payload through the
+ * domain parser, which rebuilds every nested record in the exact key order the
+ * builder hashed before recomputing the content and version hashes. Hashing or
+ * stringifying the raw jsonb payload would fail because Postgres does not
+ * preserve object key order.
  */
 function verifyOutcomePayload(payload: unknown): OutcomeRecord | null {
-  if (!isPlainRecord(payload)) return null;
-  const candidate = payload as OutcomeRecord;
-  if (candidate.schemaVersion !== 1 || typeof candidate.versionId !== "string"
-    || !VERSION_ID.test(candidate.versionId)
-    || typeof candidate.tenantId !== "string" || !UUID.test(candidate.tenantId)
-    || typeof candidate.workspaceId !== "string" || !UUID.test(candidate.workspaceId)
-    || typeof candidate.accountId !== "string" || !UUID.test(candidate.accountId)
-    || typeof candidate.playVersionId !== "string" || !PLAY_VERSION.test(candidate.playVersionId)
-    || typeof candidate.stableKey !== "string" || !SAFE_REF.test(candidate.stableKey)
-    || !Number.isSafeInteger(candidate.revision) || candidate.revision < 1
-    || (candidate.revision === 1 ? candidate.supersedesVersionId !== null
-      : !(typeof candidate.supersedesVersionId === "string"
-        && VERSION_ID.test(candidate.supersedesVersionId)))
-    || typeof candidate.contentHash !== "string" || !HASH.test(candidate.contentHash)
-    || typeof candidate.versionHash !== "string" || !HASH.test(candidate.versionHash)) {
-    return null;
-  }
-  if (recomputeContentHash(candidate) !== candidate.contentHash
-    || hashJson({ schemaVersion: 1, contentHash: candidate.contentHash }) !== candidate.versionHash
-    || candidate.versionId !== `outcome-version:${candidate.versionHash.slice(7)}`) {
-    return null;
-  }
-  if (candidate.revision === 1) {
-    const rebuilt = buildOutcomeRecord({
-      version: 1,
-      tenantId: candidate.tenantId,
-      workspaceId: candidate.workspaceId,
-      accountId: candidate.accountId,
-      playVersionId: candidate.playVersionId,
-      stableKey: candidate.stableKey,
-      revision: 1,
-      predecessor: null,
-      outcome: candidate.outcome,
-      channel: candidate.channel,
-      bounceClassification: candidate.bounceClassification,
-      occurredAt: candidate.occurredAt,
-      recordedAt: candidate.recordedAt,
-      notes: candidate.notes,
-      source: candidate.source,
-      recordedBy: candidate.recordedBy,
-      outreachDraftVersionRef: candidate.outreachDraftVersionRef,
-      attribution: candidate.attribution,
-      correction: null,
-    });
-    if (!rebuilt.ok
-      || JSON.stringify(rebuilt.record) !== JSON.stringify(payload)) return null;
-    return rebuilt.record;
-  }
-  const audit = candidate.audit;
-  if (!Array.isArray(audit) || audit.length !== candidate.revision) return null;
-  return candidate;
+  return parseOutcomeRecord(payload);
 }
 
 function rowToVersion(row: Record<string, unknown>): StoredOutcomeVersion {

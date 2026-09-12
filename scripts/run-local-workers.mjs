@@ -17,6 +17,9 @@ const WORKERS = Object.freeze([
   { workerName: "ai_verification", action: "ai_verification:process", path: "/api/ai/verify-next" },
   { workerName: "artifact", action: "artifact:process", path: "/api/ai/artifacts/process-next" },
   { workerName: "score_recompute", action: "score_recompute:recompute", path: "/api/scores/recompute-stale" },
+  // The agent-runtime worker gate binds the lease's run_id to the agent run it
+  // may claim, so this worker needs a real queued run instead of a random id.
+  { workerName: "agent_runtime", action: "agent_runtime:execute", path: "/api/agent-runtime/process-next", boundToAgentRun: true },
 ]);
 
 const ACCEPTABLE_STATUSES = new Set(["idle", "processed", "done", "disabled", "ok"]);
@@ -82,13 +85,43 @@ async function cancelLease(issuerUrl, input, selector) {
   }
 }
 
+const RUNNABLE_AGENT_RUN_SQL = `SELECT id::text AS id, workspace_id::text AS "workspaceId"
+FROM public.agent_runs
+WHERE tenant_id = $1
+  AND (status = 'queued' OR (status = 'retry_wait' AND next_attempt_at <= now()))
+ORDER BY created_at ASC
+LIMIT 1`;
+
+async function nextRunnableAgentRun(databaseUrl, tenantId) {
+  const sql = postgres(databaseUrl, { max: 1, prepare: false, onnotice: () => undefined });
+  try {
+    const [row] = await sql.unsafe(RUNNABLE_AGENT_RUN_SQL, [tenantId]);
+    return row ?? null;
+  } finally {
+    await sql.end({ timeout: 1 });
+  }
+}
+
 async function dispatch(worker, options) {
   const now = Date.now();
+  let runId = randomUUID();
+  let workspaceId = options.workspaceId;
+  if (worker.boundToAgentRun) {
+    if (!options.databaseUrl) {
+      return { worker, ok: false, phase: "acquire", detail: "DATABASE_URL is required to find a runnable agent run" };
+    }
+    const run = await nextRunnableAgentRun(options.databaseUrl, options.tenantId);
+    if (!run) {
+      return { worker, ok: true, httpStatus: null, body: { status: "idle", reason: "no_runnable_agent_run" }, phase: "done" };
+    }
+    runId = run.id;
+    workspaceId = run.workspaceId;
+  }
   const input = {
     tenantId: options.tenantId,
-    workspaceId: options.workspaceId,
+    workspaceId,
     jobId: randomUUID(),
-    runId: randomUUID(),
+    runId,
     leaseId: randomUUID(),
     leaseGeneration: 1,
     workerName: worker.workerName,
@@ -149,6 +182,7 @@ async function main() {
     ? uuid("LOCAL_WORKSPACE_ID", env.LOCAL_WORKSPACE_ID.trim())
     : null;
   const cronSecret = env.WORKER_CRON_SECRET?.trim();
+  const databaseUrl = env.DATABASE_URL?.trim();
   const leaseTtlMs = Number(env.LOCAL_WORKER_LEASE_TTL_MS ?? 90_000);
   const requestTimeoutMs = Number(env.LOCAL_WORKER_REQUEST_TIMEOUT_MS ?? 70_000);
   if (!Number.isSafeInteger(leaseTtlMs) || leaseTtlMs < 10_000) fail("LOCAL_WORKER_LEASE_TTL_MS must be a number of milliseconds");
@@ -158,7 +192,7 @@ async function main() {
   const results = [];
   for (const worker of WORKERS) {
     results.push(await dispatch(worker, {
-      issuerUrl, baseUrl, tenantId, workspaceId, cronSecret, leaseTtlMs, requestTimeoutMs,
+      issuerUrl, baseUrl, tenantId, workspaceId, cronSecret, databaseUrl, leaseTtlMs, requestTimeoutMs,
     }));
   }
 

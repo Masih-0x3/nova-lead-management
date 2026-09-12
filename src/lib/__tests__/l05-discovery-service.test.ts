@@ -156,6 +156,10 @@ function authorityPort(authority: ReturnType<typeof activeAuthority> | null): Pl
 }
 
 function planRow(plan: DiscoveryPlan): DiscoveryPlanRow {
+  // Mirror the real repository: createdAt is column metadata, not part of the
+  // hashed domain payload.
+  const { createdAt: _rowCreatedAt, ...payload } =
+    plan as DiscoveryPlan & { createdAt?: string };
   return Object.freeze({
     planId: plan.planId,
     tenantId: plan.tenantId,
@@ -167,8 +171,9 @@ function planRow(plan: DiscoveryPlan): DiscoveryPlanRow {
     playRevision: plan.play.revision,
     sourceKeys: Object.freeze(plan.tasks.map((task) => task.sourceKey)),
     limits: plan.limits as Record<string, unknown>,
-    payload: plan as unknown as Record<string, unknown>,
-    createdAt: "2026-08-30T17:00:00.000Z",
+    payload: payload as Record<string, unknown>,
+    createdAt: (plan as DiscoveryPlan & { createdAt?: string }).createdAt
+      ?? "2026-08-30T17:00:00.000Z",
   });
 }
 

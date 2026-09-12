@@ -33,6 +33,7 @@ import {
   listHandoffAttemptViews,
   requestOutreachHandoff,
   transitionOutreachDraftReviewRequest,
+  type GeneratedOutreachDraft,
   type OutreachAccountPort,
   type OutreachServiceDeps,
 } from "@/lib/outreach/service";
@@ -691,21 +692,27 @@ function generateInput(
   };
 }
 
+function requireDraft(result: GeneratedOutreachDraft) {
+  if (result.draft === null) throw new Error("expected a persisted draft");
+  return result.draft;
+}
+
 async function generateApprovedDraft(
   deps: OutreachServiceDeps & Readonly<{ play: StoredLeadPlayVersion; contact: ContactVersionRow }>,
 ) {
   const generated = await generateOutreachDraft(deps, generateInput(deps));
+  const draft = requireDraft(generated);
   const inReview = await transitionOutreachDraftReviewRequest(deps, {
     tenantId: TENANT, workspaceId: WORKSPACE, accountId: ACCOUNT,
-    versionId: generated.draft.versionId,
-    expectedReviewHash: generated.draft.review.reviewHash,
+    versionId: draft.versionId,
+    expectedReviewHash: draft.review.reviewHash,
     to: "in_review", actorId: MEMBER,
     at: "2026-09-16T14:01:00.000Z",
     reason: "Queue the draft for human review.",
   });
   const approved = await transitionOutreachDraftReviewRequest(deps, {
     tenantId: TENANT, workspaceId: WORKSPACE, accountId: ACCOUNT,
-    versionId: generated.draft.versionId,
+    versionId: draft.versionId,
     expectedReviewHash: inReview.review.reviewHash,
     to: "approved", actorId: APPROVER,
     at: "2026-09-16T14:02:00.000Z",
@@ -739,11 +746,12 @@ describe("l06 outreach service", () => {
     const deps = await fixtureDeps();
     const result = await generateOutreachDraft(deps, generateInput(deps));
     expect(result.persisted).toBe("created");
-    expect(result.draft.versionId).toMatch(/^outreach-draft-version:[0-9a-f]{64}$/u);
-    expect(result.draft.review.status).toBe("draft");
-    expect(result.draft.body).toContain("To opt out, reply STOP.");
-    expect(result.draft.validationHash).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(deps.outreach.drafts.get(result.draft.versionId)?.evidencePayload.citations.length)
+    const draft = requireDraft(result);
+    expect(draft.versionId).toMatch(/^outreach-draft-version:[0-9a-f]{64}$/u);
+    expect(draft.review.status).toBe("draft");
+    expect(draft.body).toContain("To opt out, reply STOP.");
+    expect(draft.validationHash).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(deps.outreach.drafts.get(draft.versionId)?.evidencePayload.citations.length)
       .toBeGreaterThan(0);
     expect(result.agentRunId).toBeTruthy();
   });
@@ -753,7 +761,7 @@ describe("l06 outreach service", () => {
     const first = await generateOutreachDraft(deps, generateInput(deps));
     const replay = await generateOutreachDraft(deps, generateInput(deps));
     expect(replay.persisted).toBe("replayed");
-    expect(replay.draft.versionId).toBe(first.draft.versionId);
+    expect(replay.draft?.versionId).toBe(first.draft?.versionId);
     expect(replay.stableKey).toBe(first.stableKey);
     expect(deps.outreach.drafts.size).toBe(1);
   });
@@ -791,16 +799,17 @@ describe("l06 outreach service", () => {
   it("enforces separation of duty on approval", async () => {
     const deps = await fixtureDeps();
     const generated = await generateOutreachDraft(deps, generateInput(deps));
+    const draft = requireDraft(generated);
     const inReview = await transitionOutreachDraftReviewRequest(deps, {
       tenantId: TENANT, workspaceId: WORKSPACE, accountId: ACCOUNT,
-      versionId: generated.draft.versionId,
-      expectedReviewHash: generated.draft.review.reviewHash,
+      versionId: draft.versionId,
+      expectedReviewHash: draft.review.reviewHash,
       to: "in_review", actorId: MEMBER,
       at: "2026-09-16T14:01:00.000Z", reason: "Queue for review.",
     });
     await expect(transitionOutreachDraftReviewRequest(deps, {
       tenantId: TENANT, workspaceId: WORKSPACE, accountId: ACCOUNT,
-      versionId: generated.draft.versionId,
+      versionId: draft.versionId,
       expectedReviewHash: inReview.review.reviewHash,
       to: "approved", actorId: MEMBER, reason: "Self-approval attempt.",
     })).rejects.toMatchObject({ code: "OUTREACH_SEPARATION_OF_DUTY" });
@@ -814,7 +823,7 @@ describe("l06 outreach service", () => {
     expect(result.status).toBe("released");
     if (result.status !== "released") throw new Error("expected release");
     expect(result.receipt.action).toBe("export");
-    expect(result.receipt.draft.versionId).toBe(generated.draft.versionId);
+    expect(result.receipt.draft.versionId).toBe(requireDraft(generated).versionId);
     expect(result.attempt.status).toBe("released");
     expect(result.attempt.receipt?.receiptId).toBe(result.receipt.receiptId);
   });

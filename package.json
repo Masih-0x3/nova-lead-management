@@ -17,6 +17,7 @@
     "test:e2e:public": "node scripts/run-e2e.mjs public",
     "test:e2e:auth": "node scripts/run-e2e.mjs auth",
     "test:e2e:mutating": "node scripts/run-e2e.mjs mutating",
+    "test:e2e:acceptance": "node scripts/run-e2e.mjs acceptance",
     "test:e2e:launch": "node scripts/run-e2e.mjs launch",
     "release:check": "node scripts/release-check.mjs",
     "auth:supabase:check": "node scripts/supabase-auth-config.mjs",
