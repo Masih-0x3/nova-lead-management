@@ -56,6 +56,7 @@ const settings = {
   scheduler_enrichment_enabled: true,
   scheduler_artifact_enabled: true,
   scheduler_score_recompute_enabled: true,
+  scheduler_connector_execution_enabled: true,
   openai_api_key_configured: false,
   openai_api_key_source: "none" as const,
   google_places_api_key_configured: false,

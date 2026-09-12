@@ -87,6 +87,7 @@ function authority(
       checkpointKey: "run-a:unit-a:page-1",
       inputHash: HASH_C,
       cursor: null,
+      sequence: 1,
       status: "running",
       attemptCount: 1,
       maxAttempts: 3,

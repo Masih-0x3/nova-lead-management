@@ -329,7 +329,7 @@ export function SettingsClient({
         <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
           Supabase Cron keeps background work moving. These toggles pause app-side processing without deleting cron jobs.
         </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <SchedulerToggle
             label="AI Verify"
             checked={settings.scheduler_ai_verification_enabled}
@@ -354,6 +354,11 @@ export function SettingsClient({
             label="Scores"
             checked={settings.scheduler_score_recompute_enabled}
             onChange={(checked) => update("scheduler_score_recompute_enabled", checked)}
+          />
+          <SchedulerToggle
+            label="Connectors"
+            checked={settings.scheduler_connector_execution_enabled}
+            onChange={(checked) => update("scheduler_connector_execution_enabled", checked)}
           />
         </div>
       </section>

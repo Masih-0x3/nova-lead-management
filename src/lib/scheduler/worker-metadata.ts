@@ -1,4 +1,10 @@
-export type SchedulerWorkerName = "ai_verification" | "crawl" | "enrichment" | "artifact" | "score_recompute";
+export type SchedulerWorkerName =
+  | "ai_verification"
+  | "crawl"
+  | "enrichment"
+  | "artifact"
+  | "score_recompute"
+  | "connector_execution";
 
 export interface SchedulerWorkerMetadata {
   workerName: SchedulerWorkerName;
@@ -79,6 +85,19 @@ export const SCHEDULER_WORKER_METADATA: SchedulerWorkerMetadata[] = [
     inputLabel: "Leads with stale scores",
     outputLabel: "Fresh quality buckets and sales queue priority",
     cadenceMinutes: 10,
+  },
+  {
+    workerName: "connector_execution",
+    label: "Connector Execution",
+    shortLabel: "Connectors",
+    purpose: "Claims queued source-run units and executes the next fixture page under connector policy and budget.",
+    endpoint: "/api/connectors/process-next",
+    schedule: "Every minute while a source run has runnable units",
+    externalApi: "None",
+    costSource: "Fixture-only connector units reserved under approved source policies",
+    inputLabel: "Queued or retryable source-run units",
+    outputLabel: "Settled observations, usage records, and continuation units",
+    cadenceMinutes: 1,
   },
 ];
 

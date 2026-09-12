@@ -617,6 +617,7 @@ export interface Settings {
   scheduler_enrichment_enabled: boolean;
   scheduler_artifact_enabled: boolean;
   scheduler_score_recompute_enabled: boolean;
+  scheduler_connector_execution_enabled: boolean;
   openai_api_key_configured: boolean;
   openai_api_key_source: "ui" | "env" | "none";
   google_places_api_key_configured: boolean;
@@ -1843,6 +1844,7 @@ function parseSettingsRow(row: Record<string, unknown>): Settings {
     scheduler_enrichment_enabled: ((row.scheduler_enrichment_enabled as number) ?? 1) === 1,
     scheduler_artifact_enabled: ((row.scheduler_artifact_enabled as number) ?? 1) === 1,
     scheduler_score_recompute_enabled: ((row.scheduler_score_recompute_enabled as number) ?? 1) === 1,
+    scheduler_connector_execution_enabled: ((row.scheduler_connector_execution_enabled as number) ?? 1) === 1,
     openai_api_key_configured: !!row.openai_api_key_encrypted || !!process.env.OPENAI_API_KEY,
     openai_api_key_source: row.openai_api_key_encrypted ? "ui" : process.env.OPENAI_API_KEY ? "env" : "none",
     google_places_api_key_configured: !!row.google_places_api_key_encrypted || !!process.env.GOOGLE_PLACES_API_KEY,
@@ -2004,6 +2006,10 @@ export async function updateSettings(settings: Partial<Settings>): Promise<void>
     updates.push("scheduler_score_recompute_enabled = ?");
     values.push(settings.scheduler_score_recompute_enabled ? 1 : 0);
   }
+  if (settings.scheduler_connector_execution_enabled !== undefined) {
+    updates.push("scheduler_connector_execution_enabled = ?");
+    values.push(settings.scheduler_connector_execution_enabled ? 1 : 0);
+  }
   if (settings.google_auto_pagination_enabled !== undefined) {
     updates.push("google_auto_pagination_enabled = ?");
     values.push(settings.google_auto_pagination_enabled ? 1 : 0);
@@ -2064,7 +2070,8 @@ export function isSchedulerWorkerEnabled(settings: Settings, workerName: Schedul
   if (workerName === "crawl") return settings.scheduler_crawl_enabled;
   if (workerName === "enrichment") return settings.scheduler_enrichment_enabled;
   if (workerName === "artifact") return settings.scheduler_artifact_enabled;
-  return settings.scheduler_score_recompute_enabled;
+  if (workerName === "score_recompute") return settings.scheduler_score_recompute_enabled;
+  return settings.scheduler_connector_execution_enabled;
 }
 
 const STALE_WORKER_RUN_ERROR = "Worker run interrupted or timed out before completion.";
@@ -2207,7 +2214,7 @@ async function getSchedulerHealthInternal(): Promise<SchedulerHealth> {
         worker.workerName === "crawl" ? (crawlProgress ? crawlProgress.pending + crawlProgress.running : 0) :
         worker.workerName === "enrichment" ? Number(enrichmentRow.count ?? 0) :
         worker.workerName === "artifact" ? Number(artifactRow.count ?? 0) :
-        Number(staleScoreRow.count ?? 0),
+        worker.workerName === "score_recompute" ? Number(staleScoreRow.count ?? 0) : 0,
     }));
   const progressByWorker: Record<SchedulerWorkerName, SchedulerWorkerHealth["progress"]> = {
     ai_verification: {
@@ -2245,6 +2252,14 @@ async function getSchedulerHealthInternal(): Promise<SchedulerHealth> {
     score_recompute: {
       total: Number(staleScoreRow.count ?? 0),
       pending: Number(staleScoreRow.count ?? 0),
+      running: 0,
+      completed: 0,
+      failed: 0,
+      canceled: 0,
+    },
+    connector_execution: {
+      total: 0,
+      pending: 0,
       running: 0,
       completed: 0,
       failed: 0,

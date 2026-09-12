@@ -61,6 +61,7 @@ export type ConnectorSourceRunUnitAuthorityRecord = Readonly<{
   checkpointKey: string;
   inputHash: string;
   cursor: string | null;
+  sequence: number;
   status: UnitStatus;
   attemptCount: number;
   maxAttempts: number;
@@ -285,14 +286,16 @@ function runRecord(value: unknown): ConnectorSourceRunAuthorityRecord | null {
 
 function unitRecord(value: unknown): ConnectorSourceRunUnitAuthorityRecord | null {
   const record = exactRecord(value, [
-    "id", "tenantId", "workspaceId", "runId", "checkpointKey", "inputHash", "cursor", "status", "attemptCount",
-    "maxAttempts", "reservedUnits", "leaseGeneration", "leaseTokenHash", "leaseWorkerHash", "leaseExpiresAt",
+    "id", "tenantId", "workspaceId", "runId", "checkpointKey", "inputHash", "cursor", "sequence", "status",
+    "attemptCount", "maxAttempts", "reservedUnits", "leaseGeneration", "leaseTokenHash", "leaseWorkerHash",
+    "leaseExpiresAt",
   ]);
   if (!record || typeof record.id !== "string" || !TOKEN.test(record.id)
     || typeof record.tenantId !== "string" || !UUID.test(record.tenantId) || !nullableUuid(record.workspaceId)
     || typeof record.runId !== "string" || !TOKEN.test(record.runId) || !boundedText(record.checkpointKey, 512)
     || typeof record.inputHash !== "string" || !SHA256.test(record.inputHash)
     || (record.cursor !== null && !boundedText(record.cursor, 4_096))
+    || !Number.isSafeInteger(record.sequence) || (record.sequence as number) < 1
     || !["queued", "running", "paused", "retry_wait", "page_complete", "completed", "cancelled", "blocked", "failed"]
       .includes(record.status as string)
     || !Number.isSafeInteger(record.attemptCount) || (record.attemptCount as number) < 0

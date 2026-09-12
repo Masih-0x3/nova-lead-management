@@ -25,9 +25,10 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const SQLITE_LOCAL_AUXILIARY_TABLES = Object.freeze(["tenant_membership_mutation_journal"]);
 
 // Postgres-only foundation tables (agent runtime, connector runtime, source
-// policy lifecycle, document intake/extraction, worker dispatch) that the
-// F-04–F-09 migrations create ahead of their recovery contracts. They hold no
-// recovery-manifest contract yet; adding one must remove it from this list.
+// policy lifecycle, document intake/extraction, worker dispatch, L-05
+// discovery/contacts/qualification) that the F-04–F-09 and L-05 migrations
+// create ahead of their recovery contracts. They hold no recovery-manifest
+// contract yet; adding one must remove it from this list.
 const POSTGRES_FOUNDATION_TABLES = Object.freeze([
   "agent_prompt_versions",
   "agent_policy_versions",
@@ -57,6 +58,19 @@ const POSTGRES_FOUNDATION_TABLES = Object.freeze([
   "document_extraction_jobs",
   "document_extraction_lease_history",
   "tenant_worker_dispatch_leases",
+  "discovery_plans",
+  "discovery_runs",
+  "canonical_accounts",
+  "account_source_observations",
+  "account_resolutions",
+  "account_merge_events",
+  "account_merge_snapshots",
+  "contact_record_versions",
+  "buying_center_versions",
+  "account_qualification_snapshots",
+  "review_queue_documents",
+  "review_queue_items",
+  "review_queue_events",
 ]);
 
 function verifyTrackedTableCoverage() {
