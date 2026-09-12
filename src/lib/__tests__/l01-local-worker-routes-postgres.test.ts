@@ -215,7 +215,7 @@ describe.skipIf(!RUN)("L-01 local worker route rehearsal on PostgreSQL 16", () =
     }
   });
 
-  it("runs all five worker routes through a real issuer-issued lease", async () => {
+  it("runs every registered worker route through a real issuer-issued lease", async () => {
     if (!admin) throw new Error("test database unavailable");
     const issuerRuntime = createWorkerLeaseIssuerRuntime();
 
