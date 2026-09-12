@@ -5,8 +5,13 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { BrandMark } from "@/components/brand-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ADMIN_NAV_ITEMS, PRIMARY_NAV_ITEMS } from "@/lib/navigation";
-import type { AppRole } from "@/lib/permissions";
+import {
+  ADMIN_NAV_ITEMS,
+  PRIMARY_NAV_ITEMS,
+  workflowNavItemsForRole,
+  type WorkflowNavItem,
+} from "@/lib/navigation";
+import type { AppRole, TenantRole } from "@/lib/permissions";
 
 type ShellScope = {
   tenantLabel: string;
@@ -15,36 +20,66 @@ type ShellScope = {
   preview: boolean;
 };
 
-export function NavHeader({ email, role, scope, fulfillmentCount = 0, logoutAction }: { email: string; role: AppRole; scope: ShellScope; fulfillmentCount?: number; logoutAction: () => Promise<void> }) {
+/** Workflow surfaces pinned as inline links when the tenant role may see them. */
+const PINNED_WORKFLOW_IDS = new Set(["onboarding", "knowledge"]);
+
+export function NavHeader({
+  email,
+  role,
+  tenantRole = null,
+  scope,
+  fulfillmentCount = 0,
+  logoutAction,
+}: {
+  email: string;
+  role: AppRole;
+  tenantRole?: TenantRole | null;
+  scope: ShellScope;
+  fulfillmentCount?: number;
+  logoutAction: () => Promise<void>;
+}) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const adminMenuRef = useRef<HTMLDivElement>(null);
   const adminButtonRef = useRef<HTMLButtonElement>(null);
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
+  const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const mobileButtonRef = useRef<HTMLButtonElement>(null);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isAdmin = role === "admin";
+  const workflowItems = workflowNavItemsForRole(tenantRole);
+  const pinnedItems = workflowItems.filter((item) => PINNED_WORKFLOW_IDS.has(item.id));
+  const menuItems = workflowItems.filter((item) => !PINNED_WORKFLOW_IDS.has(item.id));
+  const activeWorkflowItem = workflowItems.find((item) => isActivePath(pathname, item.href, searchParams));
+  const activeMenuItem = menuItems.find((item) => isActivePath(pathname, item.href, searchParams));
   const activeAdminItem = ADMIN_NAV_ITEMS.find((item) => isActivePath(pathname, item.href, searchParams));
 
   useEffect(() => {
-    if (!adminOpen && !mobileOpen) return;
+    if (!adminOpen && !mobileOpen && !workspaceOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      const restoreTarget = adminOpen ? adminButtonRef.current : mobileButtonRef.current;
+      const restoreTarget = adminOpen
+        ? adminButtonRef.current
+        : workspaceOpen ? workspaceButtonRef.current : mobileButtonRef.current;
       setAdminOpen(false);
+      setWorkspaceOpen(false);
       setMobileOpen(false);
       window.setTimeout(() => restoreTarget?.focus({ preventScroll: true }), 0);
     };
     const handlePointerDown = (event: PointerEvent) => {
       if (!(event.target instanceof Node)) return;
       const inAdminMenu = adminMenuRef.current?.contains(event.target) ?? false;
+      const inWorkspaceMenu = workspaceMenuRef.current?.contains(event.target) ?? false;
       const inMobileMenu = mobileMenuRef.current?.contains(event.target) ?? false;
       const onMobileButton = mobileButtonRef.current?.contains(event.target) ?? false;
-      if (!inAdminMenu && !inMobileMenu && !onMobileButton) {
+      if (!inAdminMenu && !inWorkspaceMenu && !inMobileMenu && !onMobileButton) {
         setAdminOpen(false);
+        setWorkspaceOpen(false);
         setMobileOpen(false);
       }
     };
@@ -55,7 +90,7 @@ export function NavHeader({ email, role, scope, fulfillmentCount = 0, logoutActi
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [adminOpen, mobileOpen]);
+  }, [adminOpen, mobileOpen, workspaceOpen]);
 
   return (
     <header
@@ -84,12 +119,58 @@ export function NavHeader({ email, role, scope, fulfillmentCount = 0, logoutActi
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
-          <Link href="/onboarding" className={`nav-link ${isActivePath(pathname, "/onboarding", searchParams) ? "nav-link-active" : ""}`}>
-            Setup
-          </Link>
-          <Link href="/knowledge" className={`nav-link ${isActivePath(pathname, "/knowledge", searchParams) ? "nav-link-active" : ""}`}>
-            Knowledge
-          </Link>
+          {pinnedItems.map((item) => (
+            <Link
+              key={item.id}
+              href={item.href}
+              className={`nav-link ${isActivePath(pathname, item.href, searchParams) ? "nav-link-active" : ""}`}
+            >
+              {item.label}
+            </Link>
+          ))}
+          {menuItems.length > 0 && (
+            <div ref={workspaceMenuRef} className="relative">
+              <button
+                ref={workspaceButtonRef}
+                type="button"
+                className={`nav-link ${activeMenuItem ? "nav-link-active" : ""}`}
+                aria-label="Workspace menu"
+                aria-expanded={workspaceOpen}
+                aria-controls="workspace-nav-menu"
+                aria-haspopup="true"
+                onClick={() => {
+                  setAdminOpen(false);
+                  setMobileOpen(false);
+                  setWorkspaceOpen((open) => !open);
+                }}
+              >
+                Workspace
+              </button>
+              {workspaceOpen && (
+                <nav
+                  id="workspace-nav-menu"
+                  aria-label="Workspace"
+                  className="absolute left-0 z-[70] mt-2 w-80 rounded-xl p-2"
+                  style={{
+                    background: "var(--menu-bg)",
+                    border: "1px solid var(--menu-border)",
+                    boxShadow: "var(--menu-shadow)",
+                  }}
+                >
+                  <p className="section-label px-3 pb-2 pt-1">Workspace</p>
+                  {menuItems.map((item) => (
+                    <WorkspaceMenuLink
+                      key={item.id}
+                      item={item}
+                      pathname={pathname}
+                      searchParams={searchParams}
+                      onSelect={() => setWorkspaceOpen(false)}
+                    />
+                  ))}
+                </nav>
+              )}
+            </div>
+          )}
           {PRIMARY_NAV_ITEMS.map((item) => (
             <Link key={item.href} href={item.href} className={`nav-link ${isActivePath(pathname, item.href, searchParams) ? "nav-link-active" : ""}`}>
               <NavLabel label={item.label} count={item.badge === "fulfillment" ? fulfillmentCount : 0} />
@@ -114,6 +195,7 @@ export function NavHeader({ email, role, scope, fulfillmentCount = 0, logoutActi
                 title="Admin menu"
                 onClick={() => {
                   setMobileOpen(false);
+                  setWorkspaceOpen(false);
                   setAdminOpen((open) => !open);
                 }}
               >
@@ -150,6 +232,7 @@ export function NavHeader({ email, role, scope, fulfillmentCount = 0, logoutActi
               className="btn-glass min-h-11 min-w-11 px-3"
               onClick={() => {
                 setAdminOpen(false);
+                setWorkspaceOpen(false);
                 setMobileOpen((open) => !open);
               }}
               aria-label="Toggle menu"
@@ -188,13 +271,21 @@ export function NavHeader({ email, role, scope, fulfillmentCount = 0, logoutActi
               <p className="section-label">Signed in</p>
               <p className="mt-1 break-all text-xs" style={{ color: "var(--text-secondary)" }}>{email}</p>
             </div>
-            <p className="section-label px-3 pt-1">Setup</p>
-            <Link href="/onboarding" className={`nav-link min-h-11 w-full ${isActivePath(pathname, "/onboarding", searchParams) ? "nav-link-active" : ""}`} onClick={() => setMobileOpen(false)}>
-              Onboarding
-            </Link>
-            <Link href="/knowledge" className={`nav-link min-h-11 w-full ${isActivePath(pathname, "/knowledge", searchParams) ? "nav-link-active" : ""}`} onClick={() => setMobileOpen(false)}>
-              Knowledge review
-            </Link>
+            {workflowItems.length > 0 && (
+              <>
+                <p className="section-label px-3 pt-1">Workspace</p>
+                {workflowItems.map((item) => (
+                  <Link
+                    key={item.id}
+                    href={item.href}
+                    className={`nav-link min-h-11 w-full ${isActivePath(pathname, item.href, searchParams) || activeWorkflowItem?.id === item.id ? "nav-link-active" : ""}`}
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </>
+            )}
             <p className="section-label px-3 pt-3">Legacy</p>
             {PRIMARY_NAV_ITEMS.map((item) => (
               <Link
@@ -228,6 +319,36 @@ export function NavHeader({ email, role, scope, fulfillmentCount = 0, logoutActi
         </div>
       )}
     </header>
+  );
+}
+
+function WorkspaceMenuLink({
+  item,
+  pathname,
+  searchParams,
+  onSelect,
+}: {
+  item: WorkflowNavItem;
+  pathname: string;
+  searchParams: { get(name: string): string | null };
+  onSelect: () => void;
+}) {
+  return (
+    <Link
+      href={item.href}
+      className={`block rounded-lg px-3 py-2 text-sm transition ${isActivePath(pathname, item.href, searchParams) ? "nav-link-active" : ""}`}
+      style={{ color: "var(--text-primary)" }}
+      onClick={onSelect}
+    >
+      <span className="flex items-center justify-between gap-2 font-medium">
+        {item.label}
+      </span>
+      {item.description && (
+        <span className="mt-0.5 block text-xs leading-snug" style={{ color: "var(--text-tertiary)" }}>
+          {item.description}
+        </span>
+      )}
+    </Link>
   );
 }
 

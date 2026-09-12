@@ -103,6 +103,7 @@ export default async function ProtectedLayout({
       <NavHeader
         email={session.email}
         role={session.role}
+        tenantRole={tenantSession?.userId === session.userId ? tenantSession.role : null}
         scope={shellScope}
         fulfillmentCount={fulfillmentCount}
         logoutAction={logoutAction}

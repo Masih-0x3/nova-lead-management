@@ -1,108 +1,182 @@
+import { randomUUID } from "node:crypto";
+import type { Metadata } from "next";
+
+import type { BusinessUnderstandingVersionSummary } from "@/components/knowledge/business-understanding-history-panel";
+import { PageShell } from "@/components/page-shell";
+import { getTenantSession } from "@/lib/auth";
+import { isTenantRoleCapable } from "@/lib/permissions";
+import { TenantAuthorizationError } from "@/lib/tenancy/authorize";
 import {
-  KnowledgeReviewPreview,
-  type KnowledgeReviewPreviewProps,
-} from "@/components/knowledge-review-preview";
+  getAuthenticatedQuestionSession,
+  listAuthenticatedQuestionAnswers,
+  listAuthenticatedUnderstandingVersions,
+} from "@/lib/understanding/authenticated-service";
+import type { UnderstandingVersionView } from "@/lib/understanding/service";
+import type { AdaptiveQuestionSession, QuestionAnswerRecord } from "@/lib/understanding/question-planner";
 
-const KNOWLEDGE_FIXTURE = {
-  intakeHref: "/onboarding",
-  sources: [
-    {
-      name: "Product catalog 2026.pdf",
-      format: "pdf",
-      version: "v7",
-      state: "review_required",
-      statusLabel: "Needs review",
-      detail: "42 pages · 188 evidence items",
-      processedAt: "August 29, 2026 at 9:24 AM MDT",
-    },
-    {
-      name: "Application compatibility.xlsx",
-      format: "xlsx",
-      version: "v3",
-      state: "extraction_partial",
-      statusLabel: "Partial extraction",
-      detail: "4,812 rows complete · 16 rows need review",
-      processedAt: "August 29, 2026 at 9:18 AM MDT",
-    },
-    {
-      name: "Capabilities overview.pdf",
-      format: "pdf",
-      version: "v2",
-      state: "ready",
-      statusLabel: "Ready for review",
-      detail: "12 pages · 37 evidence items",
-      processedAt: "August 29, 2026 at 8:52 AM MDT",
-    },
-  ],
-  selectedSource: {
-    name: "Product catalog 2026.pdf",
-    format: "pdf",
-    version: "v7",
-    checksumLabel: "SHA-256 · 94ae…60c2",
-    policyVersion: "document-policy v3.4",
-    parserBuild: "fixture-parser 2026.08",
-    qualityLabel: "Medium parser confidence · review required",
-    extractionState: "review_required",
-    excerpts: [
-      {
-        locator: "doc:fixture-product-catalog:v7:page:14:sec:temperature-range",
-        heading: "Operating range",
-        text: "The HX-24 blend is listed for continuous operation between −20 °C and 145 °C under the stated test method.",
-        status: "current",
-      },
-      {
-        locator: "doc:fixture-product-catalog:v7:page:31:table:markets",
-        heading: "Market availability table",
-        text: "The table names North American availability but does not provide an effective date for every row.",
-        status: "stale",
-      },
-    ],
-  },
-  understanding: {
-    version: "Understanding v12",
-    statusLabel: "Needs review · not approved",
-    generatedAt: "August 29, 2026 at 9:31 AM MDT",
-    coverageLabel: "3 of 5 material claims have current evidence",
-    domains: [
-      { name: "Offerings", summary: "Specialty blends and application support for controlled industrial uses", state: "supported" },
-      { name: "Applications", summary: "High-temperature process equipment is supported by current product literature", state: "supported" },
-      { name: "Differentiators", summary: "Performance range is evidenced; comparative advantage still needs corroboration", state: "partial" },
-      { name: "Markets and constraints", summary: "Current regional availability and exclusions remain unknown", state: "unknown" },
-    ],
-    claims: [
-      {
-        statement: "The HX-24 blend supports continuous operation up to 145 °C under the documented test method.",
-        kind: "fact",
-        support: "supported",
-        citations: [
-          { locator: "doc:fixture-product-catalog:v7:page:14:sec:temperature-range", status: "current" },
-        ],
-      },
-      {
-        statement: "Every listed blend is currently available throughout North America.",
-        kind: "fact",
-        support: "unsupported",
-        citations: [
-          { locator: "doc:fixture-product-catalog:v7:page:31:table:markets", status: "stale" },
-        ],
-      },
-      {
-        statement: "HX-24 is certified for direct food contact.",
-        kind: "regulatory",
-        support: "unsupported",
-        citations: [
-          { locator: "doc:fixture-product-catalog:v7:page:18:sec:certifications", status: "conflicted" },
-        ],
-      },
-    ],
-    question: {
-      prompt: "Which products and regions are covered by the current distribution agreement?",
-      rationale: "The catalog includes availability labels, but several rows lack an effective date and conflict with an older capabilities document.",
-      unlocks: "Current market constraints, account eligibility, and a reviewable regional availability claim",
-    },
-  },
-} satisfies KnowledgeReviewPreviewProps;
+import { PendingSeamNotice, SurfaceNotice } from "../_lib/surface";
+import { KnowledgeWorkspace } from "./workspace";
 
-export default function KnowledgePage() {
-  return <KnowledgeReviewPreview {...KNOWLEDGE_FIXTURE} />;
+export const metadata: Metadata = { title: "Knowledge | Nova Trade Lead Management" };
+
+export default async function KnowledgePage(props: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await props.searchParams;
+  const selectedVersionId = typeof params.version === "string" ? params.version : null;
+
+  const session = await getTenantSession({}).catch(() => null);
+  if (!session) {
+    return (
+      <SurfaceNotice
+        route="/knowledge"
+        title="Knowledge"
+        description="Source materials, extraction review, evidence, and the business understanding."
+        kind="unavailable"
+      />
+    );
+  }
+
+  const scope = { tenantId: session.tenantId, workspaceId: session.workspaceId };
+  const deps = { correlationId: `l07:knowledge:${randomUUID()}` };
+
+  let versions: readonly UnderstandingVersionView[] | null = null;
+  let failure: "denied" | "error" | null = null;
+  try {
+    const result = await listAuthenticatedUnderstandingVersions(scope, deps);
+    if (!result.ok) {
+      failure = "error";
+    } else {
+      versions = result.value;
+    }
+  } catch (error) {
+    failure = error instanceof TenantAuthorizationError ? "denied" : "error";
+  }
+  if (failure !== null) {
+    return (
+      <SurfaceNotice
+        route="/knowledge"
+        title="Knowledge"
+        description="Source materials, extraction review, evidence, and the business understanding."
+        kind={failure}
+      />
+    );
+  }
+
+  const ordered = [...(versions ?? [])].sort((left, right) =>
+    Date.parse(right.stored.createdAt) - Date.parse(left.stored.createdAt)
+      || right.stored.revision - left.stored.revision);
+  const selected = ordered.find((view) => view.proposal.versionId === selectedVersionId) ?? ordered[0] ?? null;
+
+  const capabilities = {
+    edit: isTenantRoleCapable(session.role, "understanding:edit"),
+    approve: isTenantRoleCapable(session.role, "understanding:approve"),
+    answer: isTenantRoleCapable(session.role, "question:answer"),
+  };
+
+  let questionSession: AdaptiveQuestionSession | null = null;
+  let questionAnswers: readonly QuestionAnswerRecord[] = [];
+  if (selected) {
+    const sessionRef = questionSessionRef(selected.proposal.versionId);
+    try {
+      const stored = await getAuthenticatedQuestionSession(scope, sessionRef, deps);
+      if (stored.ok) {
+        questionSession = stored.value.session;
+        const answers = await listAuthenticatedQuestionAnswers(scope, sessionRef, deps);
+        if (answers.ok) questionAnswers = answers.value;
+      }
+    } catch {
+      questionSession = null;
+      questionAnswers = [];
+    }
+  }
+
+  const reviewHashByVersionId: Record<string, string> = {};
+  for (const view of ordered) reviewHashByVersionId[view.proposal.versionId] = view.proposal.review.reviewHash;
+  const summaries = ordered.map((view) => toSummary(view, ordered, capabilities));
+  const proposal = selected?.proposal ?? null;
+
+  return (
+    <PageShell
+      title="Knowledge"
+      description="Business understanding review, adaptive questions, and source-material state for this tenant scope."
+    >
+      {proposal === null ? (
+        <PendingSeamNotice
+          title="No understanding version yet"
+          description="No business-understanding version exists in this scope. Versions are produced by the extraction/understanding pipeline; source-material and extraction read seams are still pending, so nothing has been produced yet."
+        />
+      ) : (
+        <KnowledgeWorkspace
+          proposal={proposal}
+          versions={summaries}
+          reviewHashByVersionId={reviewHashByVersionId}
+          scope={scope}
+          capabilities={capabilities}
+          questionSession={questionSession}
+          questionAnswers={questionAnswers}
+        />
+      )}
+
+      <section aria-labelledby="knowledge-materials-title" className="mt-5 space-y-3">
+        <h2 id="knowledge-materials-title" className="section-label">Source materials &amp; extraction</h2>
+        <PendingSeamNotice
+          title="Document registry and extraction review seams pending"
+          description="The document-intake and extraction-pipeline read seams (material list, extraction artifacts, evidence records) have not landed. Upload reservations exist as a service capability; this surface will list them once the registry read seam is available."
+        />
+      </section>
+    </PageShell>
+  );
+}
+
+function questionSessionRef(versionId: string): string {
+  return `qs:${versionId}`;
+}
+
+function toSummary(
+  view: UnderstandingVersionView,
+  all: readonly UnderstandingVersionView[],
+  capabilities: Readonly<{ approve: boolean }>,
+): BusinessUnderstandingVersionSummary {
+  const { proposal, stored } = view;
+  const status = proposal.review.status;
+  const approved = all.filter((candidate) => candidate.proposal.review.status === "approved");
+  const governing = approved.reduce<UnderstandingVersionView | null>(
+    (best, candidate) => best === null || candidate.proposal.revision > best.proposal.revision ? candidate : best,
+    null,
+  );
+  const isCurrentApproved = governing?.proposal.versionId === proposal.versionId;
+  const panelStatus = status === "superseded"
+    ? "superseded"
+    : status === "approved" ? (isCurrentApproved ? "current" : "approved") : "draft";
+  const lastEvent = proposal.review.events.at(-1) ?? null;
+  const currentApproved = governing !== null && governing.proposal.versionId !== proposal.versionId ? governing : null;
+  const rollbackTarget = capabilities.approve && status === "approved" && !isCurrentApproved ? currentApproved : null;
+  const evidenceCount = proposal.domains.reduce(
+    (count, domain) => count + domain.facts.reduce((inner, fact) => inner + fact.citations.length, 0),
+    0,
+  );
+  return {
+    tenantId: proposal.tenantId,
+    workspaceId: proposal.workspaceId,
+    versionId: proposal.versionId,
+    proposalRef: proposal.proposalRef,
+    revision: proposal.revision,
+    status: panelStatus,
+    evidenceCount,
+    uncertaintyCount: proposal.uncertainties.length,
+    questionCount: 0,
+    recordedAt: stored.createdAt,
+    lastReview: lastEvent === null ? null : {
+      reviewerId: lastEvent.actor.actorId,
+      reviewerLabel: lastEvent.actor.actorId,
+      reviewedAt: lastEvent.at,
+    },
+    rollbackTargetVersionId: rollbackTarget ? rollbackTarget.proposal.versionId : null,
+    actions: {
+      open: true,
+      review: capabilities.approve && status === "in_review",
+      rollback: rollbackTarget !== null,
+    },
+  };
 }

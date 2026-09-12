@@ -1,74 +1,122 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
+const authMocks = vi.hoisted(() => ({ getTenantSession: vi.fn() }));
+const dbMocks = vi.hoisted(() => ({
+  withTenantDbContext: vi.fn((fn: (db: unknown) => Promise<unknown>) => fn({ kind: "scoped-db" })),
+  withDbStatementTimeout: vi.fn((_timeoutMs: number, fn: () => Promise<unknown>) => fn()),
+}));
+const contextMocks = vi.hoisted(() => ({
+  runWithTenantContext: vi.fn((_session: unknown, _correlationId: unknown, fn: () => unknown) => fn()),
+}));
+const policyMocks = vi.hoisted(() => ({ gateL05Policy: vi.fn() }));
+const queryMocks = vi.hoisted(() => ({
+  createTenantQueryRepository: vi.fn(() => ({ getCurrentTenantPolicy: vi.fn(async () => null) })),
+}));
+const understandingMocks = vi.hoisted(() => ({
+  listAuthenticatedUnderstandingVersions: vi.fn(async () => ({ ok: true as const, value: [] })),
+  getAuthenticatedQuestionSession: vi.fn(async () => ({ ok: false as const })),
+}));
+const strategyMocks = vi.hoisted(() => ({
+  listAuthenticatedIcpVersions: vi.fn(async () => ({ ok: true as const, value: [] })),
+  listAuthenticatedLeadPlayVersions: vi.fn(async () => ({ ok: true as const, value: [] })),
+  getAuthenticatedLeadPlayActivation: vi.fn(async () => ({ ok: true as const, value: null })),
+}));
+
+vi.mock("@/lib/auth", () => authMocks);
+vi.mock("@/lib/db", () => dbMocks);
+vi.mock("@/lib/tenancy/context", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  runWithTenantContext: contextMocks.runWithTenantContext,
+}));
+vi.mock("@/app/api/_shared/l05-deps", () => policyMocks);
+vi.mock("@/lib/tenancy/queries", () => queryMocks);
+vi.mock("@/lib/understanding/authenticated-service", () => understandingMocks);
+vi.mock("@/lib/strategy/authenticated-service", () => strategyMocks);
 
 import OnboardingPage from "@/app/(protected)/onboarding/page";
 
-describe("fixture-backed onboarding page", () => {
-  it("renders a resumable material-intake frame with independent item states", () => {
-    const html = renderToStaticMarkup(<OnboardingPage />);
+const TENANT_SESSION = {
+  userId: "20000000-0000-4000-8000-000000000001",
+  email: "owner@example.com",
+  displayName: "Owner",
+  tenantId: "10000000-0000-4000-8000-000000000001",
+  workspaceId: null,
+  membershipId: "30000000-0000-4000-8000-000000000001",
+  roleBindingId: "40000000-0000-4000-8000-000000000001",
+  role: "owner",
+} as const;
 
-    expect(html).toContain("Add business materials");
-    expect(html).toContain("Tenant-wide responsibility checkpoint");
-    expect(html).toContain("Product catalog 2026.pdf");
-    expect(html).toContain("Ready");
-    expect(html).toContain("Extracting");
-    expect(html).toContain("Duplicate");
-    expect(html).toContain("Unsupported");
-    expect(html).toContain("ready items are preserved");
-    expect(html).toContain('href="/dashboard"');
+async function render(step?: string) {
+  const searchParams = Promise.resolve<Record<string, string | string[] | undefined>>(
+    step === undefined ? {} : { step },
+  );
+  return renderToStaticMarkup(await OnboardingPage({ searchParams }) as React.ReactElement);
+}
+
+describe("service-backed onboarding page", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authMocks.getTenantSession.mockResolvedValue(TENANT_SESSION);
+    contextMocks.runWithTenantContext.mockImplementation(
+      (_session: unknown, _correlationId: unknown, fn: () => unknown) => fn(),
+    );
+    dbMocks.withTenantDbContext.mockImplementation(
+      (fn: (db: unknown) => Promise<unknown>) => fn({ kind: "scoped-db" }),
+    );
+    dbMocks.withDbStatementTimeout.mockImplementation(
+      (_timeoutMs: number, fn: () => Promise<unknown>) => fn(),
+    );
   });
 
-  it("associates every disabled fixture action with one visible explanation", () => {
-    const html = renderToStaticMarkup(<OnboardingPage />);
-
-    expect(html.match(/id="fixture-intake-disabled-explanation"/g)).toHaveLength(1);
-    expect(html).toContain("Preview only: file, link, note, and Continue actions are unavailable");
-    expect(html.match(/<button[^>]*disabled=""/g)).toHaveLength(4);
-    expect(html.match(/aria-describedby="fixture-intake-disabled-explanation"/g)).toHaveLength(4);
-
-    for (const label of ["Choose files", "Add a link", "Add a note", "Continue"]) {
-      expect(html).toMatch(
-        new RegExp(`<button[^>]*disabled=""[^>]*aria-describedby="fixture-intake-disabled-explanation"[^>]*>${label}<\\/button>`),
-      );
-    }
+  it("renders the typed unavailable state when no tenant session resolves", async () => {
+    authMocks.getTenantSession.mockResolvedValue(null);
+    const html = await render();
+    expect(html).toContain("Tenant scope unavailable");
   });
 
-  it("gives every queue state an explicit non-color accessible label", () => {
-    const html = renderToStaticMarkup(<OnboardingPage />);
-
-    for (const [state, symbol] of [
-      ["Ready", "✓"],
-      ["Extracting", "○"],
-      ["Duplicate", "!"],
-      ["Validating", "○"],
-      ["Unsupported", "!"],
-    ] as const) {
-      expect(html).toMatch(
-        new RegExp(`data-queue-status="true"[^>]*aria-label="Queue status: ${state}"[^>]*>[\\s\\S]*?<span aria-hidden="true">${symbol}<\\/span> ${state}`),
-      );
-    }
+  it("renders the resolved tenant scope on the scope step", async () => {
+    const html = await render();
+    expect(html).toContain("Resolved tenant scope");
+    expect(html).toContain(TENANT_SESSION.tenantId);
+    expect(html).toContain(TENANT_SESSION.membershipId);
+    expect(html).toContain("owner");
+    expect(html).toContain("Tenant-wide");
+    expect(html).toContain('href="/onboarding?step=policy"');
   });
 
-  it("wraps queue content and keeps small-screen controls full-width and touch-sized", () => {
-    const html = renderToStaticMarkup(<OnboardingPage />);
+  it("renders the pending material-registry seam on the materials step", async () => {
+    const html = await render("materials");
+    expect(html).toContain("Material registry read seam pending");
+    expect(html).not.toContain("Choose files");
+    expect(html).not.toContain("<input");
+  });
 
-    expect(html).toMatch(/class="break-words text-sm font-medium"[^>]*>Product catalog 2026\.pdf<\/p>/);
-    expect(html).toMatch(/class="mt-1 break-words text-xs"[^>]*>PDF · 8\.2 MB · client-provided<\/p>/);
-    expect(html).toMatch(/class="min-w-0 break-words text-sm font-medium"[^>]*data-queue-status="true"/);
-    expect(html).toMatch(/class="min-w-0 break-words text-xs leading-relaxed"[^>]*>42 pages · 188 facts<\/p>/);
-    expect(html).toContain("mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2");
+  it("derives progress steps from the authenticated service state", async () => {
+    const html = await render("progress");
+    expect(html).toContain("Source intake");
+    expect(html).toContain("Understanding");
+    expect(html).toContain("Lead play");
+    expect(understandingMocks.listAuthenticatedUnderstandingVersions).toHaveBeenCalled();
+    expect(strategyMocks.listAuthenticatedIcpVersions).toHaveBeenCalled();
+    expect(strategyMocks.listAuthenticatedLeadPlayVersions).toHaveBeenCalled();
+  });
 
-    for (const [tag, label] of [
-      ["a", "Back to dashboard"],
-      ["button", "Continue"],
-      ["button", "Choose files"],
-      ["button", "Add a link"],
-      ["button", "Add a note"],
-    ] as const) {
-      expect(html).toMatch(
-        new RegExp(`<${tag}[^>]*class="[^"]*min-h-11[^"]*w-full[^"]*"[^>]*>${label}<\\/${tag}>`),
-      );
-    }
+  it("renders a typed failure state on the progress step when service reads fail", async () => {
+    understandingMocks.listAuthenticatedUnderstandingVersions.mockResolvedValueOnce(
+      { ok: false } as never,
+    );
+    const html = await render("progress");
+    expect(html).toContain("Progress unavailable");
+  });
+
+  it("does not claim completion without an active lead play", async () => {
+    const html = await render("complete");
+    expect(html).toContain("Setup still in progress");
+    expect(html).toContain('href="/strategy"');
+    expect(html).toContain('href="/review"');
   });
 });
