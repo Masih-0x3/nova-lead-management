@@ -53,6 +53,8 @@ next-env.d.ts
 *.db-journal
 *.db-shm
 *.db-wal
+*.sqlite3
+*.db.pre-backfill
 
 # Local production migration exports
 /data-export/

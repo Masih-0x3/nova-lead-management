@@ -6,16 +6,27 @@ import {
 import {
   LAUNCH_ROLES,
   MEMBERSHIP_STATUSES,
+  TENANT_INVITATION_DELIVERY_STATES,
+  TENANT_INVITATION_KINDS,
+  TENANT_INVITATION_STATUSES,
   TENANT_POLICY_ACTIVE_MATERIALS_MODE,
   TENANT_STATUSES,
   WORKSPACE_STATUSES,
   type AuthIdentityId,
+  type CorrelationId,
   type LaunchRole,
   type MembershipId,
   type MembershipStatus,
+  type ProvisioningRequestId,
   type TenantId,
+  type TenantInvitation,
+  type TenantInvitationDeliveryState,
+  type TenantInvitationId,
+  type TenantInvitationKind,
+  type TenantInvitationStatus,
   type TenantPolicy,
   type TenantStatus,
+  type WorkflowPolicyVersion,
   type WorkspaceId,
   type WorkspaceStatus,
 } from "@/lib/tenancy/types";
@@ -131,6 +142,73 @@ export type CreateTenantPolicyInput = Partial<
   updatedAt?: string;
 };
 
+export interface CreateTenantInvitationInput {
+  id: TenantInvitationId;
+  membershipId: MembershipId;
+  provisioningRequestId: ProvisioningRequestId | null;
+  kind: TenantInvitationKind;
+  role: LaunchRole;
+  workspaceId: WorkspaceId | null;
+  expectedIdentityRefHash: string;
+  policyVersion: WorkflowPolicyVersion;
+  generation: number;
+  contentHash: string;
+  expiresAt: string;
+  correlationId: CorrelationId;
+  auditEventId: string;
+  issuedAt?: string;
+}
+
+export interface RecordTenantInvitationDeliveryInput {
+  deliveryState: Exclude<TenantInvitationDeliveryState, "queued">;
+  deliveryAdapter: string;
+  deliveryRefHash: string | null;
+  deliveryDetail: string | null;
+  at: string;
+}
+
+export interface FinalizeTenantInvitationAcceptanceInput {
+  expectedContentHash: string;
+  acceptedAt: string;
+  acceptedAuthIdentityId: AuthIdentityId;
+}
+
+export interface CloseTenantInvitationInput {
+  at: string;
+  reasonCode: string;
+  supersededByInvitationId?: TenantInvitationId;
+}
+
+interface TenantInvitationRow extends Record<string, unknown> {
+  id: unknown;
+  tenant_id: unknown;
+  membership_id: unknown;
+  provisioning_request_id: unknown;
+  kind: unknown;
+  role: unknown;
+  workspace_id: unknown;
+  expected_identity_ref_hash: unknown;
+  policy_version: unknown;
+  generation: unknown;
+  content_hash: unknown;
+  status: unknown;
+  delivery_state: unknown;
+  delivery_adapter: unknown;
+  delivery_ref_hash: unknown;
+  delivery_detail: unknown;
+  issued_at: unknown;
+  expires_at: unknown;
+  accepted_at: unknown;
+  accepted_auth_identity_id: unknown;
+  revoked_at: unknown;
+  revoked_reason_code: unknown;
+  superseded_by_invitation_id: unknown;
+  correlation_id: unknown;
+  audit_event_id: unknown;
+  created_at: unknown;
+  updated_at: unknown;
+}
+
 interface TenantRow extends Record<string, unknown> {
   id: unknown;
   slug: unknown;
@@ -228,6 +306,9 @@ const workspaceStatusSet = new Set<string>(WORKSPACE_STATUSES);
 const membershipStatusSet = new Set<string>(MEMBERSHIP_STATUSES);
 const launchRoleSet = new Set<string>(LAUNCH_ROLES);
 const roleBindingReasonSet = new Set<string>(ROLE_BINDING_REASONS);
+const invitationKindSet = new Set<string>(TENANT_INVITATION_KINDS);
+const invitationStatusSet = new Set<string>(TENANT_INVITATION_STATUSES);
+const invitationDeliveryStateSet = new Set<string>(TENANT_INVITATION_DELIVERY_STATES);
 
 export class TenantRecordNotFoundError extends Error {
   constructor(resource: string) {
@@ -265,6 +346,38 @@ export interface TenantQueryRepository {
 
   createTenantPolicy(tenantId: TenantId, input: CreateTenantPolicyInput): Promise<TenantPolicy>;
   getCurrentTenantPolicy(tenantId: TenantId): Promise<TenantPolicy | null>;
+
+  createInvitation(tenantId: TenantId, input: CreateTenantInvitationInput): Promise<TenantInvitation>;
+  getInvitation(tenantId: TenantId, invitationId: TenantInvitationId): Promise<TenantInvitation | null>;
+  getInvitationById(invitationId: TenantInvitationId): Promise<TenantInvitation | null>;
+  getLiveInvitationForMembership(tenantId: TenantId, membershipId: MembershipId): Promise<TenantInvitation | null>;
+  listInvitationsForMembership(tenantId: TenantId, membershipId: MembershipId): Promise<TenantInvitation[]>;
+  /** CAS issued-state delivery update; returns null when the row moved on. */
+  recordInvitationDelivery(
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    input: RecordTenantInvitationDeliveryInput,
+  ): Promise<TenantInvitation | null>;
+  /** CAS issued→accepted guarded by expiry and content hash; null on a lost race. */
+  finalizeInvitationAcceptance(
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    input: FinalizeTenantInvitationAcceptanceInput,
+  ): Promise<TenantInvitation | null>;
+  /** CAS issued→revoked; null on a lost race. */
+  revokeInvitation(
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    input: CloseTenantInvitationInput,
+  ): Promise<TenantInvitation | null>;
+  /** CAS issued→superseded naming its replacement; null on a lost race. */
+  supersedeInvitation(
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    input: CloseTenantInvitationInput,
+  ): Promise<TenantInvitation | null>;
+  /** CAS issued→expired when the row is past expiry; null otherwise. */
+  expireInvitation(tenantId: TenantId, invitationId: TenantInvitationId, at: string): Promise<TenantInvitation | null>;
 
   withTransaction<T>(fn: (repository: TenantQueryRepository) => Promise<T>): Promise<T>;
 }
@@ -628,6 +741,177 @@ export function createTenantQueryRepository(db?: DbClient): TenantQueryRepositor
     return row ? mapTenantPolicy(row) : null;
   };
 
+  const invitationColumns = `id, tenant_id, membership_id, provisioning_request_id, kind, role,
+    workspace_id, expected_identity_ref_hash, policy_version, generation, content_hash, status,
+    delivery_state, delivery_adapter, delivery_ref_hash, delivery_detail, issued_at, expires_at,
+    accepted_at, accepted_auth_identity_id, revoked_at, revoked_reason_code,
+    superseded_by_invitation_id, correlation_id, audit_event_id, created_at, updated_at`;
+
+  const getInvitation = async (tenantId: TenantId, invitationId: TenantInvitationId): Promise<TenantInvitation | null> => {
+    const client = await resolveDb();
+    const row = await client.prepare(
+      `SELECT ${invitationColumns} FROM tenant_invitations WHERE tenant_id = ? AND id = ?`,
+    ).get<TenantInvitationRow>(tenantId, invitationId);
+    return row ? mapInvitation(row) : null;
+  };
+
+  const createInvitation = async (tenantId: TenantId, input: CreateTenantInvitationInput): Promise<TenantInvitation> => {
+    const client = await resolveDb();
+    const timestamp = nowISO();
+    const result = await client.prepare(
+      `INSERT INTO tenant_invitations (
+         id, tenant_id, membership_id, provisioning_request_id, kind, role, workspace_id,
+         expected_identity_ref_hash, policy_version, generation, content_hash, status,
+         delivery_state, delivery_adapter, delivery_ref_hash, delivery_detail, issued_at,
+         expires_at, accepted_at, accepted_auth_identity_id, revoked_at, revoked_reason_code,
+         superseded_by_invitation_id, correlation_id, audit_event_id, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', 'queued', NULL, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+    ).run(
+      input.id,
+      tenantId,
+      input.membershipId,
+      input.provisioningRequestId,
+      input.kind,
+      input.role,
+      input.workspaceId,
+      input.expectedIdentityRefHash,
+      input.policyVersion,
+      input.generation,
+      input.contentHash,
+      input.issuedAt ?? timestamp,
+      input.expiresAt,
+      input.correlationId,
+      input.auditEventId,
+      input.issuedAt ?? timestamp,
+      timestamp,
+    );
+    assertAffected(result.changes, "invitation creation");
+    const invitation = await getInvitation(tenantId, input.id);
+    if (!invitation) throw new Error("Invitation creation did not produce a readable record.");
+    return invitation;
+  };
+
+  const getInvitationById = async (invitationId: TenantInvitationId): Promise<TenantInvitation | null> => {
+    const client = await resolveDb();
+    const row = await client.prepare(
+      `SELECT ${invitationColumns} FROM tenant_invitations WHERE id = ?`,
+    ).get<TenantInvitationRow>(invitationId);
+    return row ? mapInvitation(row) : null;
+  };
+
+  const getLiveInvitationForMembership = async (
+    tenantId: TenantId,
+    membershipId: MembershipId,
+  ): Promise<TenantInvitation | null> => {
+    const client = await resolveDb();
+    const row = await client.prepare(
+      `SELECT ${invitationColumns} FROM tenant_invitations
+       WHERE tenant_id = ? AND membership_id = ? AND status = 'issued'
+       ORDER BY generation DESC, id DESC LIMIT 1`,
+    ).get<TenantInvitationRow>(tenantId, membershipId);
+    return row ? mapInvitation(row) : null;
+  };
+
+  const listInvitationsForMembership = async (tenantId: TenantId, membershipId: MembershipId): Promise<TenantInvitation[]> => {
+    const client = await resolveDb();
+    const rows = await client.prepare(
+      `SELECT ${invitationColumns} FROM tenant_invitations
+       WHERE tenant_id = ? AND membership_id = ? ORDER BY generation ASC, id ASC`,
+    ).all<TenantInvitationRow>(tenantId, membershipId);
+    return rows.map(mapInvitation);
+  };
+
+  const recordInvitationDelivery = async (
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    input: RecordTenantInvitationDeliveryInput,
+  ): Promise<TenantInvitation | null> => {
+    const client = await resolveDb();
+    const result = await client.prepare(
+      `UPDATE tenant_invitations
+       SET delivery_state = ?, delivery_adapter = ?, delivery_ref_hash = ?, delivery_detail = ?
+       WHERE tenant_id = ? AND id = ? AND status = 'issued'
+         AND delivery_state IN ('queued', 'delivery_failed')`,
+    ).run(
+      input.deliveryState,
+      input.deliveryAdapter,
+      input.deliveryRefHash,
+      input.deliveryDetail,
+      tenantId,
+      invitationId,
+    );
+    if (result.changes !== 1) return null;
+    return getInvitation(tenantId, invitationId);
+  };
+
+  const finalizeInvitationAcceptance = async (
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    input: FinalizeTenantInvitationAcceptanceInput,
+  ): Promise<TenantInvitation | null> => {
+    const client = await resolveDb();
+    const result = await client.prepare(
+      `UPDATE tenant_invitations
+       SET status = 'accepted', accepted_at = ?, accepted_auth_identity_id = ?
+       WHERE tenant_id = ? AND id = ? AND status = 'issued'
+         AND expires_at > ? AND content_hash = ?`,
+    ).run(
+      input.acceptedAt,
+      input.acceptedAuthIdentityId,
+      tenantId,
+      invitationId,
+      input.acceptedAt,
+      input.expectedContentHash,
+    );
+    if (result.changes !== 1) return null;
+    return getInvitation(tenantId, invitationId);
+  };
+
+  const revokeInvitation = async (
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    input: CloseTenantInvitationInput,
+  ): Promise<TenantInvitation | null> => {
+    const client = await resolveDb();
+    const result = await client.prepare(
+      `UPDATE tenant_invitations
+       SET status = 'revoked', revoked_at = ?, revoked_reason_code = ?
+       WHERE tenant_id = ? AND id = ? AND status = 'issued'`,
+    ).run(input.at, input.reasonCode, tenantId, invitationId);
+    if (result.changes !== 1) return null;
+    return getInvitation(tenantId, invitationId);
+  };
+
+  const supersedeInvitation = async (
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    input: CloseTenantInvitationInput,
+  ): Promise<TenantInvitation | null> => {
+    const client = await resolveDb();
+    const result = await client.prepare(
+      `UPDATE tenant_invitations
+       SET status = 'superseded', revoked_at = ?, revoked_reason_code = ?, superseded_by_invitation_id = ?
+       WHERE tenant_id = ? AND id = ? AND status = 'issued'`,
+    ).run(input.at, input.reasonCode, input.supersededByInvitationId ?? null, tenantId, invitationId);
+    if (result.changes !== 1) return null;
+    return getInvitation(tenantId, invitationId);
+  };
+
+  const expireInvitation = async (
+    tenantId: TenantId,
+    invitationId: TenantInvitationId,
+    at: string,
+  ): Promise<TenantInvitation | null> => {
+    const client = await resolveDb();
+    const result = await client.prepare(
+      `UPDATE tenant_invitations
+       SET status = 'expired', revoked_at = ?, revoked_reason_code = 'expired'
+       WHERE tenant_id = ? AND id = ? AND status = 'issued' AND expires_at <= ?`,
+    ).run(at, tenantId, invitationId, at);
+    if (result.changes !== 1) return null;
+    return getInvitation(tenantId, invitationId);
+  };
+
   const repository: TenantQueryRepository = {
     createTenant,
     getTenant,
@@ -647,6 +931,16 @@ export function createTenantQueryRepository(db?: DbClient): TenantQueryRepositor
     revokeCurrentRoleBinding,
     createTenantPolicy,
     getCurrentTenantPolicy,
+    createInvitation,
+    getInvitation,
+    getInvitationById,
+    getLiveInvitationForMembership,
+    listInvitationsForMembership,
+    recordInvitationDelivery,
+    finalizeInvitationAcceptance,
+    revokeInvitation,
+    supersedeInvitation,
+    expireInvitation,
     async withTransaction<T>(fn: (transactionRepository: TenantQueryRepository) => Promise<T>): Promise<T> {
       const client = await resolveDb();
       if (typeof client.withTransaction !== "function") {
@@ -781,6 +1075,38 @@ function mapRoleBinding(row: RoleBindingRow): RoleBinding {
     revokedAt: nullableTimestamp(row, "revoked_at"),
     assignedByMembershipId: nullableString(row, "assigned_by_membership_id"),
     reasonCode: enumValue<RoleBindingReason>(row, "reason_code", roleBindingReasonSet),
+  };
+}
+
+function mapInvitation(row: TenantInvitationRow): TenantInvitation {
+  return {
+    id: requiredString(row, "id"),
+    tenantId: requiredString(row, "tenant_id"),
+    membershipId: requiredString(row, "membership_id"),
+    provisioningRequestId: nullableString(row, "provisioning_request_id"),
+    kind: enumValue<TenantInvitationKind>(row, "kind", invitationKindSet),
+    role: enumValue<LaunchRole>(row, "role", launchRoleSet),
+    workspaceId: nullableString(row, "workspace_id"),
+    expectedIdentityRefHash: requiredString(row, "expected_identity_ref_hash"),
+    policyVersion: requiredString(row, "policy_version"),
+    generation: integerValue(row, "generation"),
+    contentHash: requiredString(row, "content_hash"),
+    status: enumValue<TenantInvitationStatus>(row, "status", invitationStatusSet),
+    deliveryState: enumValue<TenantInvitationDeliveryState>(row, "delivery_state", invitationDeliveryStateSet),
+    deliveryAdapter: nullableString(row, "delivery_adapter"),
+    deliveryRefHash: nullableString(row, "delivery_ref_hash"),
+    deliveryDetail: nullableString(row, "delivery_detail"),
+    issuedAt: requiredTimestamp(row, "issued_at"),
+    expiresAt: requiredTimestamp(row, "expires_at"),
+    acceptedAt: nullableTimestamp(row, "accepted_at"),
+    acceptedAuthIdentityId: nullableString(row, "accepted_auth_identity_id"),
+    revokedAt: nullableTimestamp(row, "revoked_at"),
+    revokedReasonCode: nullableString(row, "revoked_reason_code"),
+    supersededByInvitationId: nullableString(row, "superseded_by_invitation_id"),
+    correlationId: requiredString(row, "correlation_id"),
+    auditEventId: requiredString(row, "audit_event_id"),
+    createdAt: requiredTimestamp(row, "created_at"),
+    updatedAt: requiredTimestamp(row, "updated_at"),
   };
 }
 

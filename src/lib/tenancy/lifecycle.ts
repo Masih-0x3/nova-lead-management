@@ -9,10 +9,17 @@ import {
 } from "@/lib/tenancy/types";
 import type { TenantQueryRepository } from "@/lib/tenancy/queries";
 
-/** The only tenant transitions owned by this service. Provisioning and deletion have separate workflows. */
+/**
+ * The only tenant transitions owned by this service. Provisioning owns
+ * `provisioning → active`; the lifecycle-operations service owns the
+ * `deletion_pending` edges atomically with the deletion job ledger —
+ * `deletion_pending → archived` is the cancel-rollback edge.
+ */
 export const TENANT_LIFECYCLE_TRANSITIONS = {
   active: ["suspended", "archived"],
   suspended: ["active", "archived"],
+  archived: ["deletion_pending"],
+  deletion_pending: ["archived", "deleted"],
 } as const satisfies Partial<Record<TenantStatus, readonly TenantStatus[]>>;
 
 export type TenantLifecycleOperation =

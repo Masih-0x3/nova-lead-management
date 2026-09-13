@@ -24,6 +24,7 @@ describe("primary navigation", () => {
       "Statistics",
       "Settings",
       "Users",
+      "Tenancy",
     ]);
     expect(ADMIN_NAV_ITEMS.find((item) => item.label === "Discovery")?.href).toBe("/dashboard#discovery");
   });

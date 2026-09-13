@@ -68,14 +68,14 @@ describe.skipIf(!enabled)("minimum-review PostgreSQL bind regression", () => {
       vi.resetModules();
       const dbModule = await import("@/lib/db/index");
       resetDbClient = dbModule.resetDbClient;
-      // Dynamic import keeps the tenancy context on the same post-resetModules
-      // module graph as queries.ts (shared AsyncLocalStorage).
-      const { runWithTenantContext } = await import("@/lib/tenancy/context");
       const { getLeads } = await import("@/lib/db/queries");
-      const session = {
+      const { runWithTenantContext } = await import("@/lib/tenancy/context");
+      // getLeads is tenant-scoped now: a tenant-wide member context supplies
+      // the required tenant_id filter, matching the fixture tenant below.
+      const tenantWideSession = {
         userId: randomUUID(),
-        email: "g007sr4-runtime@example.test",
-        displayName: "G-007SR4 Runtime",
+        email: "g007sr4-member@nova.test",
+        displayName: "SR4 Member",
         tenantId,
         workspaceId: null,
         membershipId: randomUUID(),
@@ -83,7 +83,7 @@ describe.skipIf(!enabled)("minimum-review PostgreSQL bind regression", () => {
         roleBindingId: randomUUID(),
       };
       const read = async (minReviews: unknown) => {
-        const result = await runWithTenantContext(session, `g007sr4-${suffix}`, () => getLeads({
+        const result = await runWithTenantContext(tenantWideSession, `g007sr4-read-${suffix}`, () => getLeads({
           search: marker,
           archived: "all",
           includeExcluded: true,

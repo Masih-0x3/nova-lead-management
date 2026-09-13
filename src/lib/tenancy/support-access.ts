@@ -6,6 +6,7 @@ import {
   type TenantRole,
 } from "@/lib/permissions";
 import { getTenantContext, type TenantContext } from "@/lib/tenancy/context";
+import type { TenantLimitAction, TenantLimitResult, TenantLimitService } from "@/lib/tenancy/limits";
 import { isSupportAccessGrantEligibleAt, supportAccessGrantSchema } from "@/lib/tenancy/schemas";
 import {
   PLATFORM_SUPPORT_ROLE,
@@ -102,6 +103,12 @@ export interface SupportAccessServiceOptions {
   readonly repository: SupportAccessRepository;
   readonly principalResolver: SupportPrincipalResolver;
   readonly policyEvaluator: SupportAccessPolicyEvaluator;
+  /**
+   * Optional tenant-limit service. Member-context request/approve calls consume
+   * the support_grant_request/support_grant_approval quota before the operation
+   * transaction opens; denials are audited as SUPPORT_POLICY_BLOCKED.
+   */
+  readonly limits?: Pick<TenantLimitService, "consume">;
   readonly now?: () => Date;
   readonly idFactory?: () => string;
 }
@@ -445,6 +452,24 @@ export function createSupportAccessService(options: SupportAccessServiceOptions)
     } catch { return denial("SUPPORT_INTERNAL"); }
   }
 
+  /**
+   * Reserves one unit of the quota action under the installed member context.
+   * The derived digest key means replays count once and raw caller keys never
+   * reach the limit store. Returns the denial result, or null when allowed or
+   * no limit service is wired. Fail-closed on backend/malformed results.
+   */
+  async function limitDenied(action: TenantLimitAction, key: string): Promise<TenantLimitResult | null> {
+    const limits = options.limits;
+    if (!limits || typeof limits.consume !== "function") return null;
+    try {
+      const result = await limits.consume({ action, amount: 1, idempotencyKey: stableHash(`tenant_limit:${action}:${key}`) });
+      if (result && (result.outcome === "allowed" || result.outcome === "blocked" || result.outcome === "rate_limited")) {
+        return result.outcome === "allowed" ? null : result;
+      }
+    } catch { /* fail closed below */ }
+    return { outcome: "blocked", code: "BLOCKED_BACKEND", retryAfterMs: null, resetAt: null };
+  }
+
   async function request(input: SupportAccessRequestInput): Promise<SupportAccessResult> {
     const context = currentMember();
     const parsed = exactInput(input, ["tenantId", "supportPrincipalRef", "reasonCode", "reason", "startsAt", "expiresAt", "permissions", "dataClasses", "idempotencyKey"], ["workspaceId", "correlationId"]);
@@ -476,6 +501,8 @@ export function createSupportAccessService(options: SupportAccessServiceOptions)
     const principal = await resolvePrincipal(parsed.get("supportPrincipalRef"));
     if (!principal) return auditDenied({ operation: "request", tenantId: context.tenantId, workspaceId, actorLayer: "member", actorId: context.actorAuthIdentityId, supportGrantId: null, permission: "support:grant", dataClasses, correlationId, idempotencyKey: key, code: "SUPPORT_GRANT_REQUIRED", reasonCode: "support.grant.request", inputHashPayload: { operation: "request", tenantId: context.tenantId, key, invalid: "principal" } });
     if (principal.authIdentityId === context.actorAuthIdentityId) return auditDenied({ operation: "request", tenantId: context.tenantId, workspaceId, actorLayer: "member", actorId: context.actorAuthIdentityId, supportGrantId: null, permission: "support:grant", dataClasses, correlationId, idempotencyKey: key, code: "SUPPORT_SELF_ACTION", reasonCode: "support.grant.request", inputHashPayload: { operation: "request", tenantId: context.tenantId, key, principal: principal.authIdentityId } });
+    const quota = await limitDenied("support_grant_request", key);
+    if (quota) return auditDenied({ operation: "request", tenantId: context.tenantId, workspaceId, actorLayer: "member", actorId: context.actorAuthIdentityId, supportGrantId: null, permission: "support:grant", dataClasses, correlationId, idempotencyKey: key, code: "SUPPORT_POLICY_BLOCKED", reasonCode: "support.grant.request.quota", inputHashPayload: { operation: "request", tenantId: context.tenantId, key, quota: quota.code } });
     let createdAt: string; let id: string; let auditEventId: string;
     try { createdAt = operationNow(options); id = makeId(options); auditEventId = makeId(options); } catch { return denial("SUPPORT_INTERNAL"); }
     const creation: SupportAccessGrantCreation = { id, tenantId: context.tenantId, workspaceId, supportActorAuthIdentityId: principal.authIdentityId, platformRole: PLATFORM_SUPPORT_ROLE, requestedByAuthIdentityId: context.actorAuthIdentityId, reasonCode: parsed.get("reasonCode") as string, reason: parsed.get("reason") as string, startsAt: parsed.get("startsAt") as string, expiresAt: parsed.get("expiresAt") as string, correlationId, auditEventId, permissions, dataClasses, createdAt, updatedAt: createdAt };
@@ -521,6 +548,10 @@ export function createSupportAccessService(options: SupportAccessServiceOptions)
     const correlationId = memberCorrelation(parsed, context); const workspaceId = normalizeMemberWorkspace(parsed, context); const key = parsed.get("idempotencyKey") as string; const grantId = parsed.get("grantId") as string;
     if (!correlationId) return auditDenied({ operation, tenantId: context.tenantId, workspaceId: context.workspaceId, actorLayer: "member", actorId: context.actorAuthIdentityId, supportGrantId: grantId, permission: "support:grant", dataClasses: [], correlationId: context.correlationId, idempotencyKey: key, code: "SUPPORT_MALFORMED", reasonCode: `support.grant.${operation}`, inputHashPayload: { operation, tenantId: context.tenantId, grantId, key, invalid: "correlation" } });
     if (workspaceId === undefined) return auditDenied({ operation, tenantId: context.tenantId, workspaceId: context.workspaceId, actorLayer: "member", actorId: context.actorAuthIdentityId, supportGrantId: grantId, permission: "support:grant", dataClasses: [], correlationId, idempotencyKey: key, code: "SUPPORT_WORKSPACE_SCOPE_INVALID", reasonCode: `support.grant.${operation}`, inputHashPayload: { operation, tenantId: context.tenantId, grantId, key, invalid: "workspace" } });
+    if (operation === "approve") {
+      const quota = await limitDenied("support_grant_approval", key);
+      if (quota) return auditDenied({ operation, tenantId: context.tenantId, workspaceId, actorLayer: "member", actorId: context.actorAuthIdentityId, supportGrantId: grantId, permission: "support:grant", dataClasses: [], correlationId, idempotencyKey: key, code: "SUPPORT_POLICY_BLOCKED", reasonCode: "support.grant.approve.quota", inputHashPayload: { operation, tenantId: context.tenantId, grantId, key, quota: quota.code } });
+    }
     let hash: string; let attemptId: string; let auditEventId: string;
     try { hash = stableHash({ operation, tenantId: context.tenantId, grantId, workspaceId, actorAuthIdentityId: context.actorAuthIdentityId, correlationId }); attemptId = makeId(options); auditEventId = makeId(options); } catch { return denial("SUPPORT_INTERNAL"); }
     const result = await atomic({ operation, tenantId: context.tenantId, actorNamespace: context.actorAuthIdentityId, idempotencyKey: key, inputHash: hash, facts: normalizedFacts({ tenantId: context.tenantId, workspaceId, actorLayer: "member", actorId: context.actorAuthIdentityId, supportGrantId: grantId, permission: "support:grant", dataClasses: [], correlationId, reasonCode: `support.grant.${operation}` }), attemptId, auditEventId, callback: async (tx) => {

@@ -167,6 +167,12 @@ describe("tenant lifecycle state machine", () => {
     ["suspended", "active"],
     ["active", "archived"],
     ["suspended", "archived"],
+    // The deletion_pending edges are owned by the lifecycle-operations service
+    // atomically with the deletion job ledger; the pure state machine allows
+    // them and that service applies the authorization policy.
+    ["archived", "deletion_pending"],
+    ["deletion_pending", "archived"],
+    ["deletion_pending", "deleted"],
   ] as const)("allows %s -> %s and rejects no permission by itself", (from, to) => {
     expect(canTransitionTenant(from, to)).toEqual({ allowed: true, code: "ALLOWED" });
   });
@@ -175,9 +181,10 @@ describe("tenant lifecycle state machine", () => {
     ["provisioning", "active"],
     ["archived", "active"],
     ["active", "deletion_pending"],
-    ["archived", "deletion_pending"],
-    ["deletion_pending", "deleted"],
+    ["deletion_pending", "active"],
+    ["deletion_pending", "suspended"],
     ["deleted", "active"],
+    ["deleted", "deleted"],
     ["active", "active"],
   ] as const)("rejects dedicated or invalid transition %s -> %s", (from, to) => {
     expect(canTransitionTenant(from, to)).toEqual({ allowed: false, code: "BLOCKED_STATE_CONFLICT" });

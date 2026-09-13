@@ -212,8 +212,8 @@ describe("SQLite local tenant membership administration adapter", () => {
     ).get(TENANT_A)).toEqual({ count: 0 });
     expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE tenant_id = ?").get(TENANT_A))
       .toEqual({ count: 0 });
-    await expectCode(service.disableMember(session(), {
-      ...commandBase("disabled-local-operation-0001"), membershipId: TARGET_A,
+    await expectCode(service.assignMemberWorkspace(session(), {
+      ...commandBase("disabled-local-operation-0001"), membershipId: TARGET_A, workspaceId: null,
     }), "POLICY_BLOCKED");
     const hostileService = createLocalTenantMembershipAdministrationService(db, {
       policyEvaluator: (context) => ({ allowed: true, context }),
@@ -285,5 +285,76 @@ describe("SQLite local tenant membership administration adapter", () => {
     ).get(TENANT_A)).toEqual({ completed_at: effectiveAt });
     expect(db.sqlite.prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE tenant_id = ?").get(TENANT_A))
       .toEqual({ count: 1 });
+  });
+
+  it("disables, reactivates, and removes memberships durably with tenant-scoped predicates", async () => {
+    const db = world();
+    const service = createLocalTenantMembershipAdministrationService(db);
+    const actor = session(TENANT_A);
+
+    // Cross-tenant targets collapse to the non-enumerating code before mutation.
+    await expectCode(
+      service.disableMember(actor, { ...commandBase("state-x-tenant-1"), membershipId: TARGET_B }),
+      "TARGET_NOT_FOUND_OR_FORBIDDEN",
+    );
+    expect(db.sqlite.prepare("SELECT status FROM tenant_memberships WHERE id = ?").get(TARGET_B))
+      .toEqual({ status: "active" });
+
+    // disable: active → disabled; replay is idempotent; second distinct request conflicts.
+    const disabled = await service.disableMember(actor, { ...commandBase("state-disable-1"), membershipId: TARGET_A });
+    expect(disabled.membership).toMatchObject({ membershipId: TARGET_A, status: "disabled" });
+    await expect(service.disableMember(actor, { ...commandBase("state-disable-1"), membershipId: TARGET_A }))
+      .resolves.toEqual(disabled);
+    await expectCode(
+      service.disableMember(actor, { ...commandBase("state-disable-2"), membershipId: TARGET_A }),
+      "STATE_CONFLICT",
+    );
+    expect(db.sqlite.prepare("SELECT status FROM tenant_memberships WHERE id = ?").get(TARGET_A))
+      .toEqual({ status: "disabled" });
+
+    // reactivate: disabled → active.
+    const reactivated = await service.reactivateMember(actor, { ...commandBase("state-react-1"), membershipId: TARGET_A });
+    expect(reactivated.membership).toMatchObject({ membershipId: TARGET_A, status: "active" });
+    expect(db.sqlite.prepare(
+      "SELECT COUNT(*) count FROM tenant_role_bindings WHERE membership_id = ? AND revoked_at IS NULL",
+    ).get(TARGET_A)).toEqual({ count: 1 });
+
+    // remove: non-terminal → removed, revokes the role binding, then terminal.
+    const removed = await service.removeMember(actor, { ...commandBase("state-remove-1"), membershipId: TARGET_A });
+    expect(removed.membership).toMatchObject({ membershipId: TARGET_A, status: "removed" });
+    expect(db.sqlite.prepare(
+      "SELECT COUNT(*) count FROM tenant_role_bindings WHERE membership_id = ? AND revoked_at IS NULL",
+    ).get(TARGET_A)).toEqual({ count: 0 });
+    await expectCode(
+      service.removeMember(actor, { ...commandBase("state-remove-2"), membershipId: TARGET_A }),
+      "STATE_CONFLICT",
+    );
+
+    // Revoking a pending membership is the invitation-cancel path.
+    const invited = await service.invitePendingMember(actor, {
+      ...commandBase("state-invite-1"),
+      identitySelectorHash: hashLocalAuthIdentitySelector(INVITEE_AUTH),
+      role: "researcher",
+      workspaceId: null,
+    });
+    const revoked = await service.revokeMember(actor, {
+      ...commandBase("state-revoke-1"), membershipId: invited.membership.membershipId,
+    });
+    expect(revoked.membership.status).toBe("revoked");
+
+    // An active owner cannot be removed without an atomic replacement.
+    const OWNER_MEMBER = "70000000-0000-4000-8000-000000000010";
+    seedMember(db.sqlite, TENANT_A, OWNER_MEMBER, "80000000-0000-4000-8000-000000000010", "owner");
+    await expectCode(
+      service.removeMember(actor, { ...commandBase("state-owner-1"), membershipId: OWNER_MEMBER }),
+      "OWNER_GUARD",
+    );
+    expect(db.sqlite.prepare("SELECT status FROM tenant_memberships WHERE id = ?").get(OWNER_MEMBER))
+      .toEqual({ status: "active" });
+    const handedOff = await service.removeMember(actor, {
+      ...commandBase("state-owner-2"), membershipId: OWNER_MEMBER, replacementOwnerMembershipId: ACTOR_A,
+    });
+    expect(handedOff.membership.status).toBe("removed");
+    expect(handedOff.replacementMembership).toMatchObject({ membershipId: ACTOR_A, role: "owner" });
   });
 });

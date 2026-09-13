@@ -1,19 +1,40 @@
+import { randomUUID } from "node:crypto";
 import type { Metadata } from "next";
 
 import { LocalMembershipAdminControls } from "@/components/admin/local-membership-admin-controls";
 import { PageShell } from "@/components/page-shell";
-import { getTenantSession } from "@/lib/auth";
+import { getTenantSession, type TenantSession } from "@/lib/auth";
 import { withDbStatementTimeout, withTenantDbContext } from "@/lib/db/index";
 import { startRouteTiming } from "@/lib/route-timing";
 import { assertTenantPermission } from "@/lib/tenancy/authorize";
 import { runWithTenantContext } from "@/lib/tenancy/context";
 import {
-  isLocalMembershipMutationAvailable,
-  loadMembershipDirectory,
-  type MembershipDirectory,
-} from "../_lib/membership-directory";
+  createLocalTenantMembershipAdministrationService,
+  isLocalMembershipAdministrationAvailable,
+} from "@/lib/tenancy/local-membership-administration";
+import { createPostgresTenantMembershipAdministrationService } from "@/lib/tenancy/postgres-membership-administration";
+import type { MembershipHistoryView, MembershipView } from "@/lib/tenancy/memberships";
+import type { MembershipStatus } from "@/lib/tenancy/types";
 
 export const metadata: Metadata = { title: "Users | Nova Trade Lead Management" };
+
+type Directory = Readonly<{
+  memberships: readonly MembershipView[];
+  history: readonly MembershipHistoryView[];
+  actor: MembershipView;
+}>;
+
+const CURRENT_MEMBERSHIP_STATUSES = new Set<MembershipStatus>([
+  "pending",
+  "active",
+  "suspended",
+  "disabled",
+]);
+const TERMINAL_MEMBERSHIP_STATUSES = new Set<MembershipStatus>([
+  "revoked",
+  "removed",
+  "expired",
+]);
 
 export default async function UsersPage() {
   const logRouteTiming = startRouteTiming("/users");
@@ -37,14 +58,19 @@ export default async function UsersPage() {
     return <UsersUnavailable reason="tenant_scope_unavailable" />;
   }
 
-  const localMutationsAvailable = isLocalMembershipMutationAvailable();
-  let directory: MembershipDirectory;
+  let directory: Directory;
   try {
     directory = await runWithTenantContext(
       tenantSession,
-      `users-page:${crypto.randomUUID()}`,
-      () => withTenantDbContext((db) => withDbStatementTimeout(10_000, async () =>
-        loadMembershipDirectory(db, tenantSession))),
+      `users-page:${randomUUID()}`,
+      () => withTenantDbContext((db) => withDbStatementTimeout(10_000, async () => {
+        const service = isLocalMembershipAdministrationAvailable()
+          ? createLocalTenantMembershipAdministrationService(db)
+          : createPostgresTenantMembershipAdministrationService();
+        const memberships = await service.listCurrent(tenantSession);
+        const history = await service.listHistory(tenantSession);
+        return validateDirectory(tenantSession, memberships, history);
+      })),
     );
     logRouteTiming(200);
   } catch {
@@ -56,7 +82,7 @@ export default async function UsersPage() {
   const pending = directory.memberships.filter((membership) => membership.status === "pending").length;
   const suspended = directory.memberships.filter((membership) => membership.status === "suspended").length;
   const withoutRole = directory.memberships.filter((membership) => membership.role === null).length;
-  const mutationsEnabled = localMutationsAvailable && (tenantSession.role === "owner" || tenantSession.role === "admin");
+  const mutationsEnabled = tenantSession.role === "owner" || tenantSession.role === "admin";
 
   return (
     <PageShell
@@ -78,6 +104,55 @@ export default async function UsersPage() {
       />
     </PageShell>
   );
+}
+
+function validateDirectory(
+  session: TenantSession,
+  memberships: readonly MembershipView[],
+  history: readonly MembershipHistoryView[],
+): Directory {
+  const currentById = new Map(memberships.map((membership) => [membership.membershipId, membership]));
+  const historyById = new Map(history.map((membership) => [membership.membershipId, membership]));
+  if (currentById.size !== memberships.length
+    || historyById.size !== history.length
+    || memberships.some((membership) => membership.tenantId !== session.tenantId)
+    || history.some((membership) => membership.tenantId !== session.tenantId)
+    || memberships.some((membership) => !CURRENT_MEMBERSHIP_STATUSES.has(membership.status))) {
+    throw new Error("Invalid tenant member snapshot.");
+  }
+
+  for (const membership of memberships) {
+    const historical = historyById.get(membership.membershipId);
+    if (!historical || !sameMembershipFacts(membership, historical)) {
+      throw new Error("Invalid tenant member snapshot.");
+    }
+  }
+  for (const historical of history) {
+    const current = currentById.get(historical.membershipId);
+    const terminal = TERMINAL_MEMBERSHIP_STATUSES.has(historical.status);
+    if ((terminal && current !== undefined)
+      || (!terminal && (current === undefined || !sameMembershipFacts(current, historical)))) {
+      throw new Error("Invalid tenant member snapshot.");
+    }
+  }
+
+  const actors = memberships.filter((membership) => membership.membershipId === session.membershipId);
+  if (actors.length !== 1 || actors[0].status !== "active" || actors[0].role !== session.role
+    || actors[0].workspaceId !== null) {
+    throw new Error("Invalid tenant member snapshot.");
+  }
+  return { memberships, history, actor: actors[0] };
+}
+
+function sameMembershipFacts(
+  current: MembershipView,
+  historical: MembershipHistoryView,
+): boolean {
+  return historical.tenantId === current.tenantId
+    && historical.membershipId === current.membershipId
+    && historical.status === current.status
+    && historical.role === current.role
+    && historical.workspaceId === current.workspaceId;
 }
 
 function UsersUnavailable({ reason }: Readonly<{ reason: "tenant_scope_unavailable" | "members_load_error" }>) {
