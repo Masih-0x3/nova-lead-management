@@ -121,7 +121,8 @@ export interface DocumentIntakeRepository {
   getUploadReservation(identity: DocumentIntakeCommandIdentity): Promise<unknown>;
   /** Must atomically quarantine the version, tenant-local dedupe, and stage one scan outbox message. */
   finalizeQuarantine(request: FinalizeQuarantinePersistenceRequest): Promise<unknown>;
-  leaseScanJob(request: ProcessDocumentScanInput): Promise<unknown>;
+  /** With a null jobId the discovery context picks the oldest due job; the issued lease generation is returned on the lease. */
+  leaseScanJob(jobId: string | null): Promise<unknown>;
   /** Must fence on leaseToken and atomically persist the verdict plus any bounded retry. */
   persistScanResult(request: PersistDocumentScanResultRequest): Promise<unknown>;
 }
@@ -317,30 +318,6 @@ export type PersistDocumentScanResultRequest = Readonly<{
   state: "clean" | "infected" | "scanner_error";
   scan: ScannerObservation;
   retryRequested: boolean;
-}>;
-
-export type ProcessDocumentScanInput = Readonly<{
-  jobId: string;
-  tenantId: string;
-  workspaceId: string;
-  documentId: string;
-  versionId: string;
-  checksum: string;
-  policyVersion: string;
-}>;
-
-export type ProcessDocumentScanResult = Readonly<{
-  kind: "persisted" | "replay";
-  jobId: string;
-  tenantId: string;
-  workspaceId: string;
-  documentId: string;
-  versionId: string;
-  checksum: string;
-  policyVersion: string;
-  state: "clean" | "infected" | "scanner_error";
-  scan: ScannerObservation;
-  retryScheduled: boolean;
 }>;
 
 function normalizeCommandIdentity(value: unknown): DocumentIntakeCommandIdentity {
@@ -556,27 +533,11 @@ export async function completeDocumentUpload(
   return freezeResult({ kind: finalization.kind, record, processing, scanDispatch });
 }
 
-const SCAN_INPUT_FIELDS = [
+const SCAN_IDENTITY_FIELDS = [
   "jobId", "tenantId", "workspaceId", "documentId", "versionId", "checksum", "policyVersion",
 ] as const;
 
-function normalizeScanInput(value: unknown): ProcessDocumentScanInput {
-  const input = snapshotRecord(value, SCAN_INPUT_FIELDS);
-  if (!input) throw boundaryError();
-  return {
-    jobId: canonicalUuid(input.jobId),
-    tenantId: canonicalUuid(input.tenantId),
-    workspaceId: canonicalUuid(input.workspaceId),
-    documentId: canonicalUuid(input.documentId),
-    versionId: canonicalUuid(input.versionId),
-    checksum: typeof input.checksum === "string" && SHA256.test(input.checksum)
-      ? input.checksum
-      : (() => { throw boundaryError(); })(),
-    policyVersion: boundedToken(input.policyVersion, POLICY_VERSION),
-  };
-}
-
-type ScanLease = Readonly<{
+export type ClaimedDocumentScanLease = Readonly<{
   leaseToken: string;
   jobId: string;
   tenantId: string;
@@ -588,46 +549,82 @@ type ScanLease = Readonly<{
   policyVersion: string;
   attempt: number;
   maxAttempts: number;
+  leaseGeneration: number;
+  leaseExpiresAt: string;
   state: "quarantined";
 }>;
 
+export type PersistedDocumentScanRecord = Readonly<{
+  jobId: string;
+  tenantId: string;
+  workspaceId: string;
+  documentId: string;
+  versionId: string;
+  checksum: string;
+  policyVersion: string;
+  state: "clean" | "infected" | "scanner_error";
+  scan: ScannerObservation;
+  retryScheduled: boolean;
+}>;
+
+export type DocumentScanClaimResult = Readonly<
+  | { kind: "unavailable" }
+  | { kind: "already_persisted"; result: PersistedDocumentScanRecord }
+  | { kind: "leased"; lease: ClaimedDocumentScanLease }
+>;
+
 const SCAN_LEASE_FIELDS = [
   "leaseToken", "jobId", "tenantId", "workspaceId", "documentId", "versionId", "objectKey", "checksum",
-  "policyVersion", "attempt", "maxAttempts", "state",
+  "policyVersion", "attempt", "maxAttempts", "leaseGeneration", "leaseExpiresAt", "state",
 ] as const;
 
-function scanLease(value: unknown, input: ProcessDocumentScanInput): ScanLease {
+function scanLease(value: unknown): ClaimedDocumentScanLease {
   try {
     const lease = snapshotRecord(value, SCAN_LEASE_FIELDS);
+    if (!lease) throw persistenceError();
+    const tenantId = canonicalUuid(lease.tenantId);
+    const workspaceId = canonicalUuid(lease.workspaceId);
+    const documentId = canonicalUuid(lease.documentId);
+    const versionId = canonicalUuid(lease.versionId);
     const expectedObjectKey = buildDocumentObjectKey({
-      tenantId: input.tenantId,
-      documentId: input.documentId,
-      versionId: input.versionId,
+      tenantId,
+      documentId,
+      versionId,
       object: { kind: "original" },
     });
-    if (!lease || boundedToken(lease.leaseToken, IDEMPOTENCY_KEY) !== lease.leaseToken
-      || lease.jobId !== input.jobId || lease.tenantId !== input.tenantId
-      || lease.workspaceId !== input.workspaceId
-      || lease.documentId !== input.documentId || lease.versionId !== input.versionId
-      || lease.objectKey !== expectedObjectKey || lease.checksum !== input.checksum
-      || lease.policyVersion !== input.policyVersion || lease.state !== "quarantined"
+    const leaseExpiresAt = typeof lease.leaseExpiresAt === "string"
+      && Number.isFinite(Date.parse(lease.leaseExpiresAt))
+      ? new Date(lease.leaseExpiresAt).toISOString() : null;
+    if (boundedToken(lease.leaseToken, IDEMPOTENCY_KEY) !== lease.leaseToken
+      || canonicalUuid(lease.jobId) !== lease.jobId
+      || lease.tenantId !== tenantId || lease.workspaceId !== workspaceId
+      || lease.documentId !== documentId || lease.versionId !== versionId
+      || lease.objectKey !== expectedObjectKey
+      || typeof lease.checksum !== "string" || !SHA256.test(lease.checksum)
+      || boundedToken(lease.policyVersion, POLICY_VERSION) !== lease.policyVersion
+      || lease.state !== "quarantined"
       || !Number.isSafeInteger(lease.attempt) || !Number.isSafeInteger(lease.maxAttempts)
       || (lease.attempt as number) < 1 || (lease.maxAttempts as number) < 1
-      || (lease.attempt as number) > (lease.maxAttempts as number) || (lease.maxAttempts as number) > 10) {
+      || (lease.attempt as number) > (lease.maxAttempts as number) || (lease.maxAttempts as number) > 10
+      || !Number.isSafeInteger(lease.leaseGeneration)
+      || (lease.leaseGeneration as number) < 1 || (lease.leaseGeneration as number) > 999999
+      || leaseExpiresAt === null || Date.parse(leaseExpiresAt) <= Date.now()) {
       throw persistenceError();
     }
     return {
       leaseToken: lease.leaseToken as string,
-      jobId: input.jobId,
-      tenantId: input.tenantId,
-      workspaceId: input.workspaceId,
-      documentId: input.documentId,
-      versionId: input.versionId,
+      jobId: lease.jobId as string,
+      tenantId,
+      workspaceId,
+      documentId,
+      versionId,
       objectKey: expectedObjectKey,
-      checksum: input.checksum,
-      policyVersion: input.policyVersion,
+      checksum: lease.checksum as string,
+      policyVersion: lease.policyVersion as string,
       attempt: lease.attempt as number,
       maxAttempts: lease.maxAttempts as number,
+      leaseGeneration: lease.leaseGeneration as number,
+      leaseExpiresAt,
       state: "quarantined",
     };
   } catch (error) {
@@ -643,14 +640,15 @@ const SCAN_OBSERVATION_FIELDS = [
 
 function persistedScannerObservation(
   value: unknown,
-  input: ProcessDocumentScanInput,
+  checksum: string,
+  policyVersion: string,
 ): ScannerObservation {
   const observation = snapshotRecord(value, SCAN_OBSERVATION_FIELDS, ["reasonCode", "retryable"]);
   if (!observation || (observation.verdict !== "clean" && observation.verdict !== "infected"
     && observation.verdict !== "error") || typeof observation.scannerAdapterId !== "string"
     || !observation.scannerAdapterId || typeof observation.scannerVersion !== "string"
-    || !observation.scannerVersion || observation.scannedChecksum !== input.checksum
-    || observation.policyVersion !== input.policyVersion || typeof observation.scannedAt !== "string"
+    || !observation.scannerVersion || observation.scannedChecksum !== checksum
+    || observation.policyVersion !== policyVersion || typeof observation.scannedAt !== "string"
     || !Number.isFinite(Date.parse(observation.scannedAt))
     || Date.parse(observation.scannedAt) > Date.now() + 5 * 60 * 1000
     || (observation.reasonCode !== undefined && typeof observation.reasonCode !== "string")
@@ -661,9 +659,9 @@ function persistedScannerObservation(
     verdict: observation.verdict,
     scannerAdapterId: observation.scannerAdapterId,
     scannerVersion: observation.scannerVersion,
-    scannedChecksum: input.checksum,
+    scannedChecksum: checksum,
     scannedAt: new Date(observation.scannedAt).toISOString(),
-    policyVersion: input.policyVersion,
+    policyVersion,
     ...(observation.reasonCode === undefined ? {} : { reasonCode: observation.reasonCode as string }),
     ...(observation.retryable === undefined ? {} : { retryable: observation.retryable as boolean }),
   };
@@ -674,15 +672,26 @@ const SCAN_RESULT_FIELDS = [
   "retryScheduled",
 ] as const;
 
-function persistedScanReplay(
-  value: unknown,
-  input: ProcessDocumentScanInput,
-): ProcessDocumentScanResult {
-  const result = snapshotRecord(value, SCAN_RESULT_FIELDS);
-  if (!result || SCAN_INPUT_FIELDS.some((field) => result[field] !== input[field])
+function persistedScanRecord(value: unknown): PersistedDocumentScanRecord {
+  const result = snapshotRecord(value, SCAN_RESULT_FIELDS, ["kind"]);
+  if (!result || (result.kind !== undefined
+    && result.kind !== "persisted" && result.kind !== "already_persisted")) throw persistenceError();
+  const jobId = canonicalUuid(result.jobId);
+  const tenantId = canonicalUuid(result.tenantId);
+  const workspaceId = canonicalUuid(result.workspaceId);
+  const documentId = canonicalUuid(result.documentId);
+  const versionId = canonicalUuid(result.versionId);
+  const checksum = typeof result.checksum === "string" && SHA256.test(result.checksum)
+    ? result.checksum : null;
+  const policyVersion = typeof result.policyVersion === "string"
+    && POLICY_VERSION.test(result.policyVersion) ? result.policyVersion : null;
+  if (result.jobId !== jobId || result.tenantId !== tenantId || result.workspaceId !== workspaceId
+    || result.documentId !== documentId || result.versionId !== versionId
+    || checksum === null || result.checksum !== checksum
+    || policyVersion === null || result.policyVersion !== policyVersion
     || (result.state !== "clean" && result.state !== "infected" && result.state !== "scanner_error")
     || typeof result.retryScheduled !== "boolean") throw persistenceError();
-  const scan = persistedScannerObservation(result.scan, input);
+  const scan = persistedScannerObservation(result.scan, checksum, policyVersion);
   const expectedState = scan.verdict === "clean" ? "clean"
     : scan.verdict === "infected" ? "infected" : "scanner_error";
   if (result.state !== expectedState
@@ -690,35 +699,60 @@ function persistedScanReplay(
     throw persistenceError();
   }
   return freezeResult({
-    kind: "replay",
-    ...input,
+    jobId,
+    tenantId,
+    workspaceId,
+    documentId,
+    versionId,
+    checksum,
+    policyVersion,
     state: expectedState,
     scan,
     retryScheduled: result.retryScheduled,
   });
 }
 
-export async function processDocumentScan(
-  rawInput: ProcessDocumentScanInput,
+/**
+ * Claims the next due scan job (jobId null, discovery scope) or a specific
+ * queued job. The issued lease_generation rides on the returned lease: the
+ * caller installs it in the worker scope that later persists the verdict.
+ */
+export async function claimDocumentScanJob(
+  rawInput: Readonly<{ jobId: string | null }>,
   dependencies: Readonly<{
-    repository: Pick<DocumentIntakeRepository, "leaseScanJob" | "persistScanResult">;
-    scanner: MalwareScannerAdapter;
+    repository: Pick<DocumentIntakeRepository, "leaseScanJob">;
   }>,
-): Promise<ProcessDocumentScanResult> {
-  const input = normalizeScanInput(rawInput);
+): Promise<DocumentScanClaimResult> {
+  const input = snapshotRecord(rawInput, ["jobId"]);
+  if (!input || (input.jobId !== null && typeof input.jobId !== "string")) throw boundaryError();
+  const jobId = input.jobId === null ? null : canonicalUuid(input.jobId);
   let rawLeaseResult: unknown;
   try {
-    rawLeaseResult = await dependencies.repository.leaseScanJob(freezeResult({ ...input }));
+    rawLeaseResult = await dependencies.repository.leaseScanJob(jobId);
   } catch {
     throw persistenceError();
   }
   const leaseResult = snapshotRecord(rawLeaseResult, ["kind"], ["lease", "result"]);
   if (!leaseResult) throw persistenceError();
-  if (leaseResult.kind === "already_persisted" && leaseResult.result) {
-    return persistedScanReplay(leaseResult.result, input);
+  if (leaseResult.kind === "unavailable") {
+    return freezeResult({ kind: "unavailable" });
+  }
+  if (leaseResult.kind === "already_persisted") {
+    if (!leaseResult.result) throw persistenceError();
+    return freezeResult({ kind: "already_persisted", result: persistedScanRecord(leaseResult.result) });
   }
   if (leaseResult.kind !== "leased" || !leaseResult.lease) throw persistenceError();
-  const lease = scanLease(leaseResult.lease, input);
+  return freezeResult({ kind: "leased", lease: scanLease(leaseResult.lease) });
+}
+
+/**
+ * Runs the quarantine scan against the claimed lease and returns the exact
+ * fenced persist request. No persistence happens here.
+ */
+export async function executeDocumentScan(
+  lease: ClaimedDocumentScanLease,
+  dependencies: Readonly<{ scanner: MalwareScannerAdapter }>,
+): Promise<PersistDocumentScanResultRequest> {
   const execution = await executeQuarantineScan({
     tenantId: lease.tenantId,
     documentId: lease.documentId,
@@ -731,7 +765,7 @@ export async function processDocumentScan(
     && execution.version.state !== "scanner_error") throw boundaryError();
   const retryRequested = execution.version.state === "scanner_error"
     && execution.scan.retryable === true && lease.attempt < lease.maxAttempts;
-  const persistRequest: PersistDocumentScanResultRequest = {
+  return freezeResult({
     leaseToken: lease.leaseToken,
     jobId: lease.jobId,
     tenantId: lease.tenantId,
@@ -743,32 +777,48 @@ export async function processDocumentScan(
     state: execution.version.state,
     scan: { ...execution.scan },
     retryRequested,
-  };
+  });
+}
+
+/**
+ * Persists a scan verdict under the worker scope that carries the lease's
+ * issued generation; the repository's response must echo the request exactly.
+ */
+export async function persistDocumentScanResult(
+  request: PersistDocumentScanResultRequest,
+  dependencies: Readonly<{
+    repository: Pick<DocumentIntakeRepository, "persistScanResult">;
+  }>,
+): Promise<PersistedDocumentScanRecord> {
+  const input = snapshotRecord(request, [
+    "leaseToken", ...SCAN_IDENTITY_FIELDS, "state", "scan", "retryRequested",
+  ]);
+  if (!input || boundedToken(input.leaseToken, IDEMPOTENCY_KEY) !== input.leaseToken
+    || canonicalUuid(input.jobId) !== input.jobId
+    || canonicalUuid(input.tenantId) !== input.tenantId
+    || canonicalUuid(input.workspaceId) !== input.workspaceId
+    || canonicalUuid(input.documentId) !== input.documentId
+    || canonicalUuid(input.versionId) !== input.versionId
+    || typeof input.checksum !== "string" || !SHA256.test(input.checksum)
+    || boundedToken(input.policyVersion, POLICY_VERSION) !== input.policyVersion
+    || (input.state !== "clean" && input.state !== "infected" && input.state !== "scanner_error")
+    || typeof input.retryRequested !== "boolean") throw boundaryError();
+  const scan = persistedScannerObservation(input.scan, input.checksum, input.policyVersion);
   let rawPersisted: unknown;
   try {
-    rawPersisted = await dependencies.repository.persistScanResult(freezeResult(persistRequest));
+    rawPersisted = await dependencies.repository.persistScanResult(freezeResult({
+      ...input,
+      state: input.state,
+      scan,
+    } as PersistDocumentScanResultRequest));
   } catch {
     throw persistenceError();
   }
-  const persisted = snapshotRecord(rawPersisted, [
-    "kind", ...SCAN_INPUT_FIELDS, "state", "retryScheduled",
-  ]);
-  if (!persisted || persisted.kind !== "persisted"
-    || SCAN_INPUT_FIELDS.some((field) => persisted[field] !== input[field])
-    || persisted.state !== execution.version.state || persisted.retryScheduled !== retryRequested) {
+  const persisted = persistedScanRecord(rawPersisted);
+  if (SCAN_IDENTITY_FIELDS.some((field) => persisted[field] !== input[field])
+    || persisted.state !== input.state
+    || persisted.retryScheduled !== input.retryRequested) {
     throw persistenceError();
   }
-  return freezeResult({
-    kind: "persisted",
-    jobId: lease.jobId,
-    tenantId: lease.tenantId,
-    workspaceId: lease.workspaceId,
-    documentId: lease.documentId,
-    versionId: lease.versionId,
-    checksum: lease.checksum,
-    policyVersion: lease.policyVersion,
-    state: execution.version.state,
-    scan: { ...execution.scan },
-    retryScheduled: retryRequested,
-  });
+  return persisted;
 }
