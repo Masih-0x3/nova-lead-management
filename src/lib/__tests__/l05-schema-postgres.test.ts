@@ -88,7 +88,7 @@ async function replayAllMigrations(client: Sql): Promise<void> {
     }
   }
   expect({ discovered: migrations.length, applied, skipped: SKIPPED.size })
-    .toEqual({ discovered: 89, applied: 87, skipped: 2 });
+    .toEqual({ discovered: 91, applied: 89, skipped: 2 });
 }
 
 async function seedFoundation(client: Sql): Promise<void> {

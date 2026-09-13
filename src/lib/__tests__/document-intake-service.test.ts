@@ -3,13 +3,16 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
+  claimDocumentScanJob,
   completeDocumentUpload,
+  executeDocumentScan,
   initiateDocumentIntake,
-  processDocumentScan,
+  persistDocumentScanResult,
   type DocumentIntakeRepository,
   type DocumentScanOutbox,
   type DocumentStorageAdapter,
   type DocumentUploadReservationRecord,
+  type MalwareScannerAdapter,
   type UploadedDocumentReader,
 } from "@/lib/documents";
 
@@ -21,6 +24,23 @@ const SECOND_VERSION_ID = "55555555-5555-4555-8555-555555555555";
 const OBJECT_KEY = `tenants/${TENANT_ID}/documents/${DOCUMENT_ID}/versions/${VERSION_ID}/original`;
 const CHECKSUM = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
 const SCAN_JOB_ID = "44444444-4444-4444-8444-444444444444";
+const LEASE_EXPIRES_AT = () => new Date(Date.now() + 300_000).toISOString();
+
+type ScanRepository = Pick<DocumentIntakeRepository, "leaseScanJob" | "persistScanResult">;
+
+async function runScan(
+  repository: ScanRepository,
+  scanner: MalwareScannerAdapter,
+  jobId: string | null = SCAN_JOB_ID,
+) {
+  const claim = await claimDocumentScanJob({ jobId }, { repository });
+  if (claim.kind === "unavailable") return claim;
+  if (claim.kind === "already_persisted") {
+    return { kind: "replay" as const, ...claim.result };
+  }
+  const request = await executeDocumentScan(claim.lease, { scanner });
+  return persistDocumentScanResult(request, { repository });
+}
 
 const reservationRecord = (
   overrides: Partial<DocumentUploadReservationRecord> = {},
@@ -442,24 +462,29 @@ describe("document intake orchestration", () => {
 
   it("leases and persists a checksum-bound clean scan before reporting success", async () => {
     let persisted: unknown;
-    const repository: Pick<DocumentIntakeRepository, "leaseScanJob" | "persistScanResult"> = {
-      leaseScanJob: async () => ({
-        kind: "leased",
-        lease: {
-          leaseToken: "lease-token-00000001",
-          jobId: SCAN_JOB_ID,
-          tenantId: TENANT_ID,
-          workspaceId: WORKSPACE_ID,
-          documentId: DOCUMENT_ID,
-          versionId: VERSION_ID,
-          objectKey: OBJECT_KEY,
-          checksum: CHECKSUM,
-          policyVersion: "launch-v1",
-          attempt: 1,
-          maxAttempts: 3,
-          state: "quarantined",
-        },
-      }),
+    const repository: ScanRepository = {
+      leaseScanJob: async (jobId) => {
+        expect(jobId).toBe(SCAN_JOB_ID);
+        return {
+          kind: "leased",
+          lease: {
+            leaseToken: "lease-token-00000001",
+            jobId: SCAN_JOB_ID,
+            tenantId: TENANT_ID,
+            workspaceId: WORKSPACE_ID,
+            documentId: DOCUMENT_ID,
+            versionId: VERSION_ID,
+            objectKey: OBJECT_KEY,
+            checksum: CHECKSUM,
+            policyVersion: "launch-v1",
+            attempt: 1,
+            maxAttempts: 3,
+            leaseGeneration: 2,
+            leaseExpiresAt: LEASE_EXPIRES_AT(),
+            state: "quarantined",
+          },
+        };
+      },
       persistScanResult: async (request) => {
         persisted = request;
         return {
@@ -472,47 +497,38 @@ describe("document intake orchestration", () => {
           checksum: request.checksum,
           policyVersion: request.policyVersion,
           state: request.state,
+          scan: request.scan,
           retryScheduled: request.retryRequested,
         };
       },
     };
 
-    const result = await processDocumentScan({
-      jobId: SCAN_JOB_ID,
-      tenantId: TENANT_ID,
-      workspaceId: WORKSPACE_ID,
-      documentId: DOCUMENT_ID,
-      versionId: VERSION_ID,
-      checksum: CHECKSUM,
-      policyVersion: "launch-v1",
-    }, {
-      repository,
-      scanner: {
-        scan: async (request) => ({
-          verdict: "clean",
-          scannerAdapterId: "fixture-scanner",
-          scannerVersion: "1.0.0",
-          scannedChecksum: request.checksum,
-          scannedAt: new Date().toISOString(),
-          policyVersion: request.policyVersion,
-        }),
-      },
+    const result = await runScan(repository, {
+      scan: async (request) => ({
+        verdict: "clean",
+        scannerAdapterId: "fixture-scanner",
+        scannerVersion: "1.0.0",
+        scannedChecksum: request.checksum,
+        scannedAt: new Date().toISOString(),
+        policyVersion: request.policyVersion,
+      }),
     });
 
     expect(result).toMatchObject({
-      kind: "persisted",
       jobId: SCAN_JOB_ID,
       state: "clean",
       retryScheduled: false,
       scan: { verdict: "clean", scannedChecksum: CHECKSUM },
     });
     expect(persisted).toMatchObject({
+      leaseToken: "lease-token-00000001",
       tenantId: TENANT_ID,
       versionId: VERSION_ID,
       checksum: CHECKSUM,
       state: "clean",
       retryRequested: false,
     });
+    if (!("scan" in result)) throw new Error("unreachable");
     expect(Object.isFrozen(result.scan)).toBe(true);
   });
 
@@ -520,7 +536,7 @@ describe("document intake orchestration", () => {
     { attempt: 1, retryScheduled: true },
     { attempt: 3, retryScheduled: false },
   ])("persists scanner failures as non-clean with bounded retry=$retryScheduled", async ({ attempt, retryScheduled }) => {
-    const repository: Pick<DocumentIntakeRepository, "leaseScanJob" | "persistScanResult"> = {
+    const repository: ScanRepository = {
       leaseScanJob: async () => ({
         kind: "leased",
         lease: {
@@ -535,6 +551,8 @@ describe("document intake orchestration", () => {
           policyVersion: "launch-v1",
           attempt,
           maxAttempts: 3,
+          leaseGeneration: 2,
+          leaseExpiresAt: LEASE_EXPIRES_AT(),
           state: "quarantined",
         },
       }),
@@ -548,21 +566,13 @@ describe("document intake orchestration", () => {
         checksum: request.checksum,
         policyVersion: request.policyVersion,
         state: request.state,
+        scan: request.scan,
         retryScheduled: request.retryRequested,
       }),
     };
 
-    await expect(processDocumentScan({
-      jobId: SCAN_JOB_ID,
-      tenantId: TENANT_ID,
-      workspaceId: WORKSPACE_ID,
-      documentId: DOCUMENT_ID,
-      versionId: VERSION_ID,
-      checksum: CHECKSUM,
-      policyVersion: "launch-v1",
-    }, {
-      repository,
-      scanner: { scan: async () => { throw new Error("scanner timeout"); } },
+    await expect(runScan(repository, {
+      scan: async () => { throw new Error("scanner timeout"); },
     })).resolves.toMatchObject({
       state: "scanner_error",
       retryScheduled,
@@ -572,143 +582,111 @@ describe("document intake orchestration", () => {
 
   it("rejects a cross-tenant or accessor lease before invoking the scanner", async () => {
     let scannerCalls = 0;
-    const scanner = {
+    const scanner: MalwareScannerAdapter = {
       scan: async () => {
         scannerCalls += 1;
         return {};
       },
     };
-    const input = {
-      jobId: SCAN_JOB_ID,
-      tenantId: TENANT_ID,
-      workspaceId: WORKSPACE_ID,
-      documentId: DOCUMENT_ID,
-      versionId: VERSION_ID,
-      checksum: CHECKSUM,
-      policyVersion: "launch-v1",
-    };
     const persistScanResult = async () => { throw new Error("must not persist"); };
 
-    await expect(processDocumentScan(input, {
-      repository: {
-        leaseScanJob: async () => ({
-          kind: "leased",
-          lease: {
-            leaseToken: "lease-token-00000001",
-            jobId: SCAN_JOB_ID,
-            tenantId: "99999999-9999-4999-8999-999999999999",
-            workspaceId: WORKSPACE_ID,
-            documentId: DOCUMENT_ID,
-            versionId: VERSION_ID,
-            objectKey: OBJECT_KEY,
-            checksum: CHECKSUM,
-            policyVersion: "launch-v1",
-            attempt: 1,
-            maxAttempts: 3,
-            state: "quarantined",
-          },
-        }),
-        persistScanResult,
-      },
-      scanner,
-    })).rejects.toMatchObject({ code: "persistence_boundary_error" });
+    await expect(runScan({
+      leaseScanJob: async () => ({
+        kind: "leased",
+        lease: {
+          leaseToken: "lease-token-00000001",
+          jobId: SCAN_JOB_ID,
+          tenantId: "99999999-9999-4999-8999-999999999999",
+          workspaceId: WORKSPACE_ID,
+          documentId: DOCUMENT_ID,
+          versionId: VERSION_ID,
+          objectKey: OBJECT_KEY,
+          checksum: CHECKSUM,
+          policyVersion: "launch-v1",
+          attempt: 1,
+          maxAttempts: 3,
+          leaseGeneration: 2,
+          leaseExpiresAt: LEASE_EXPIRES_AT(),
+          state: "quarantined",
+        },
+      }),
+      persistScanResult,
+    }, scanner)).rejects.toMatchObject({ code: "persistence_boundary_error" });
 
     let reads = 0;
-    await expect(processDocumentScan(input, {
-      repository: {
-        leaseScanJob: async () => ({
-          kind: "leased",
-          get lease() { reads += 1; throw new Error("getter"); },
-        }),
-        persistScanResult,
-      },
-      scanner,
-    })).rejects.toMatchObject({ code: "persistence_boundary_error" });
+    await expect(runScan({
+      leaseScanJob: async () => ({
+        kind: "leased",
+        get lease() { reads += 1; throw new Error("getter"); },
+      }),
+      persistScanResult,
+    }, scanner)).rejects.toMatchObject({ code: "persistence_boundary_error" });
     expect(reads).toBe(0);
     expect(scannerCalls).toBe(0);
   });
 
   it("never reports a scanner verdict when result persistence fails", async () => {
-    await expect(processDocumentScan({
-      jobId: SCAN_JOB_ID,
-      tenantId: TENANT_ID,
-      workspaceId: WORKSPACE_ID,
-      documentId: DOCUMENT_ID,
-      versionId: VERSION_ID,
-      checksum: CHECKSUM,
-      policyVersion: "launch-v1",
-    }, {
-      repository: {
-        leaseScanJob: async () => ({
-          kind: "leased",
-          lease: {
-            leaseToken: "lease-token-00000001",
-            jobId: SCAN_JOB_ID,
-            tenantId: TENANT_ID,
-            workspaceId: WORKSPACE_ID,
-            documentId: DOCUMENT_ID,
-            versionId: VERSION_ID,
-            objectKey: OBJECT_KEY,
-            checksum: CHECKSUM,
-            policyVersion: "launch-v1",
-            attempt: 1,
-            maxAttempts: 3,
-            state: "quarantined",
-          },
-        }),
-        persistScanResult: async () => { throw new Error("database unavailable"); },
-      },
-      scanner: {
-        scan: async () => ({
-          verdict: "clean",
-          scannerAdapterId: "fixture-scanner",
-          scannerVersion: "1.0.0",
-          scannedChecksum: CHECKSUM,
-          scannedAt: new Date().toISOString(),
+    await expect(runScan({
+      leaseScanJob: async () => ({
+        kind: "leased",
+        lease: {
+          leaseToken: "lease-token-00000001",
+          jobId: SCAN_JOB_ID,
+          tenantId: TENANT_ID,
+          workspaceId: WORKSPACE_ID,
+          documentId: DOCUMENT_ID,
+          versionId: VERSION_ID,
+          objectKey: OBJECT_KEY,
+          checksum: CHECKSUM,
           policyVersion: "launch-v1",
-        }),
-      },
+          attempt: 1,
+          maxAttempts: 3,
+          leaseGeneration: 2,
+          leaseExpiresAt: LEASE_EXPIRES_AT(),
+          state: "quarantined",
+        },
+      }),
+      persistScanResult: async () => { throw new Error("database unavailable"); },
+    }, {
+      scan: async () => ({
+        verdict: "clean",
+        scannerAdapterId: "fixture-scanner",
+        scannerVersion: "1.0.0",
+        scannedChecksum: CHECKSUM,
+        scannedAt: new Date().toISOString(),
+        policyVersion: "launch-v1",
+      }),
     })).rejects.toMatchObject({ code: "persistence_boundary_error" });
   });
 
   it("replays a persisted scan result without invoking the scanner again", async () => {
     let scannerCalls = 0;
-    await expect(processDocumentScan({
-      jobId: SCAN_JOB_ID,
-      tenantId: TENANT_ID,
-      workspaceId: WORKSPACE_ID,
-      documentId: DOCUMENT_ID,
-      versionId: VERSION_ID,
-      checksum: CHECKSUM,
-      policyVersion: "launch-v1",
-    }, {
-      repository: {
-        leaseScanJob: async () => ({
-          kind: "already_persisted",
-          result: {
-            jobId: SCAN_JOB_ID,
-            tenantId: TENANT_ID,
-            workspaceId: WORKSPACE_ID,
-            documentId: DOCUMENT_ID,
-            versionId: VERSION_ID,
-            checksum: CHECKSUM,
+    await expect(runScan({
+      leaseScanJob: async () => ({
+        kind: "already_persisted",
+        result: {
+          jobId: SCAN_JOB_ID,
+          tenantId: TENANT_ID,
+          workspaceId: WORKSPACE_ID,
+          documentId: DOCUMENT_ID,
+          versionId: VERSION_ID,
+          checksum: CHECKSUM,
+          policyVersion: "launch-v1",
+          state: "clean",
+          scan: {
+            verdict: "clean",
+            scannerAdapterId: "fixture-scanner",
+            scannerVersion: "1.0.0",
+            scannedChecksum: CHECKSUM,
+            scannedAt: "2026-08-29T12:00:00.000Z",
             policyVersion: "launch-v1",
-            state: "clean",
-            scan: {
-              verdict: "clean",
-              scannerAdapterId: "fixture-scanner",
-              scannerVersion: "1.0.0",
-              scannedChecksum: CHECKSUM,
-              scannedAt: "2026-08-29T12:00:00.000Z",
-              policyVersion: "launch-v1",
-            },
-            retryScheduled: false,
           },
-        }),
-        persistScanResult: async () => { throw new Error("must not persist"); },
-      },
-      scanner: { scan: async () => { scannerCalls += 1; return {}; } },
-    })).resolves.toMatchObject({ kind: "replay", state: "clean", retryScheduled: false });
+          retryScheduled: false,
+        },
+      }),
+      persistScanResult: async () => { throw new Error("must not persist"); },
+    }, { scan: async () => { scannerCalls += 1; return {}; } }))
+      .resolves.toMatchObject({ kind: "replay", state: "clean", retryScheduled: false });
     expect(scannerCalls).toBe(0);
   });
 
@@ -740,43 +718,33 @@ describe("document intake orchestration", () => {
     "rejects a replay that schedules retry for a terminal %s verdict",
     async (verdict) => {
     let scannerCalls = 0;
-    await expect(processDocumentScan({
-      jobId: SCAN_JOB_ID,
-      tenantId: TENANT_ID,
-      workspaceId: WORKSPACE_ID,
-      documentId: DOCUMENT_ID,
-      versionId: VERSION_ID,
-      checksum: CHECKSUM,
-      policyVersion: "launch-v1",
-    }, {
-      repository: {
-        leaseScanJob: async () => ({
-          kind: "already_persisted",
-          result: {
-            jobId: SCAN_JOB_ID,
-            tenantId: TENANT_ID,
-            workspaceId: WORKSPACE_ID,
-            documentId: DOCUMENT_ID,
-            versionId: VERSION_ID,
-            checksum: CHECKSUM,
+    await expect(runScan({
+      leaseScanJob: async () => ({
+        kind: "already_persisted",
+        result: {
+          jobId: SCAN_JOB_ID,
+          tenantId: TENANT_ID,
+          workspaceId: WORKSPACE_ID,
+          documentId: DOCUMENT_ID,
+          versionId: VERSION_ID,
+          checksum: CHECKSUM,
+          policyVersion: "launch-v1",
+          state: verdict,
+          scan: {
+            verdict,
+            scannerAdapterId: "fixture-scanner",
+            scannerVersion: "1.0.0",
+            scannedChecksum: CHECKSUM,
+            scannedAt: "2026-08-29T12:00:00.000Z",
             policyVersion: "launch-v1",
-            state: verdict,
-            scan: {
-              verdict,
-              scannerAdapterId: "fixture-scanner",
-              scannerVersion: "1.0.0",
-              scannedChecksum: CHECKSUM,
-              scannedAt: "2026-08-29T12:00:00.000Z",
-              policyVersion: "launch-v1",
-              retryable: true,
-            },
-            retryScheduled: true,
+            retryable: true,
           },
-        }),
-        persistScanResult: async () => { throw new Error("must not persist"); },
-      },
-      scanner: { scan: async () => { scannerCalls += 1; return {}; } },
-    })).rejects.toMatchObject({ code: "persistence_boundary_error" });
+          retryScheduled: true,
+        },
+      }),
+      persistScanResult: async () => { throw new Error("must not persist"); },
+    }, { scan: async () => { scannerCalls += 1; return {}; } }))
+      .rejects.toMatchObject({ code: "persistence_boundary_error" });
     expect(scannerCalls).toBe(0);
     },
   );
@@ -822,7 +790,7 @@ describe("document intake orchestration", () => {
     })).rejects.toMatchObject({ code: "persistence_boundary_error" });
     expect(outboxCalls).toBe(0);
 
-    const scanInput = {
+    const scanIdentity = {
       jobId: SCAN_JOB_ID,
       tenantId: TENANT_ID,
       workspaceId: WORKSPACE_ID,
@@ -831,37 +799,37 @@ describe("document intake orchestration", () => {
       checksum: CHECKSUM,
       policyVersion: "launch-v1",
     };
-    await expect(processDocumentScan(scanInput, {
-      repository: {
-        leaseScanJob: async () => ({
-          kind: "leased",
-          lease: {
-            leaseToken: "lease-token-00000001",
-            ...scanInput,
-            objectKey: OBJECT_KEY,
-            attempt: 1,
-            maxAttempts: 3,
-            state: "quarantined",
-          },
-        }),
-        persistScanResult: async (request) => ({
-          kind: "persisted",
-          ...scanInput,
-          workspaceId: otherWorkspaceId,
-          state: request.state,
-          retryScheduled: request.retryRequested,
-        }),
-      },
-      scanner: {
-        scan: async (request) => ({
-          verdict: "clean",
-          scannerAdapterId: "fixture-scanner",
-          scannerVersion: "1.0.0",
-          scannedChecksum: request.checksum,
-          scannedAt: new Date().toISOString(),
-          policyVersion: request.policyVersion,
-        }),
-      },
+    await expect(runScan({
+      leaseScanJob: async () => ({
+        kind: "leased",
+        lease: {
+          leaseToken: "lease-token-00000001",
+          ...scanIdentity,
+          objectKey: OBJECT_KEY,
+          attempt: 1,
+          maxAttempts: 3,
+          leaseGeneration: 2,
+          leaseExpiresAt: LEASE_EXPIRES_AT(),
+          state: "quarantined",
+        },
+      }),
+      persistScanResult: async (request) => ({
+        kind: "persisted",
+        ...scanIdentity,
+        workspaceId: otherWorkspaceId,
+        state: request.state,
+        scan: request.scan,
+        retryScheduled: request.retryRequested,
+      }),
+    }, {
+      scan: async (request) => ({
+        verdict: "clean",
+        scannerAdapterId: "fixture-scanner",
+        scannerVersion: "1.0.0",
+        scannedChecksum: request.checksum,
+        scannedAt: new Date().toISOString(),
+        policyVersion: request.policyVersion,
+      }),
     })).rejects.toMatchObject({ code: "persistence_boundary_error" });
   });
 
@@ -929,7 +897,7 @@ describe("document intake orchestration", () => {
       scanDispatch: "accepted",
     });
 
-    const scanInput = {
+    const scanIdentity = {
       jobId: SCAN_JOB_ID,
       tenantId: TENANT_ID,
       workspaceId: WORKSPACE_ID,
@@ -938,42 +906,42 @@ describe("document intake orchestration", () => {
       checksum: CHECKSUM,
       policyVersion: "launch-v1",
     };
-    const scanResult = await processDocumentScan(scanInput, {
-      repository: {
-        leaseScanJob: async (request) => {
-          expect(request).toEqual(scanInput);
-          return {
-            kind: "leased",
-            lease: {
-              leaseToken: "lease-token-00000001",
-              ...scanInput,
-              objectKey: OBJECT_KEY,
-              attempt: 1,
-              maxAttempts: 3,
-              state: "quarantined",
-            },
-          };
-        },
-        persistScanResult: async (request) => {
-          expect(request.workspaceId).toBe(WORKSPACE_ID);
-          return {
-            kind: "persisted",
-            ...scanInput,
-            state: request.state,
-            retryScheduled: request.retryRequested,
-          };
-        },
+    const scanResult = await runScan({
+      leaseScanJob: async (jobId) => {
+        expect(jobId).toBe(SCAN_JOB_ID);
+        return {
+          kind: "leased",
+          lease: {
+            leaseToken: "lease-token-00000001",
+            ...scanIdentity,
+            objectKey: OBJECT_KEY,
+            attempt: 1,
+            maxAttempts: 3,
+            leaseGeneration: 2,
+            leaseExpiresAt: LEASE_EXPIRES_AT(),
+            state: "quarantined",
+          },
+        };
       },
-      scanner: {
-        scan: async (request) => ({
-          verdict: "clean",
-          scannerAdapterId: "fixture-scanner",
-          scannerVersion: "1.0.0",
-          scannedChecksum: request.checksum,
-          scannedAt: new Date().toISOString(),
-          policyVersion: request.policyVersion,
-        }),
+      persistScanResult: async (request) => {
+        expect(request.workspaceId).toBe(WORKSPACE_ID);
+        return {
+          kind: "persisted",
+          ...scanIdentity,
+          state: request.state,
+          scan: request.scan,
+          retryScheduled: request.retryRequested,
+        };
       },
+    }, {
+      scan: async (request) => ({
+        verdict: "clean",
+        scannerAdapterId: "fixture-scanner",
+        scannerVersion: "1.0.0",
+        scannedChecksum: request.checksum,
+        scannedAt: new Date().toISOString(),
+        policyVersion: request.policyVersion,
+      }),
     });
     expect(scanResult).toMatchObject({ workspaceId: WORKSPACE_ID, state: "clean" });
 
@@ -995,24 +963,23 @@ describe("document intake orchestration", () => {
     expect(readerCalls).toBe(0);
 
     let scannerCalls = 0;
-    await expect(processDocumentScan(scanInput, {
-      repository: {
-        leaseScanJob: async () => ({
-          kind: "leased",
-          lease: {
-            leaseToken: "lease-token-00000001",
-            ...scanInput,
-            workspaceId: otherWorkspaceId,
-            objectKey: OBJECT_KEY,
-            attempt: 1,
-            maxAttempts: 3,
-            state: "quarantined",
-          },
-        }),
-        persistScanResult: async () => { throw new Error("must not persist"); },
-      },
-      scanner: { scan: async () => { scannerCalls += 1; return {}; } },
-    })).rejects.toMatchObject({ code: "persistence_boundary_error" });
+    await expect(runScan({
+      leaseScanJob: async () => ({
+        kind: "leased",
+        lease: {
+          leaseToken: "lease-token-00000001",
+          ...scanIdentity,
+          objectKey: `tenants/${TENANT_ID}/documents/${DOCUMENT_ID}/versions/${SECOND_VERSION_ID}/original`,
+          attempt: 1,
+          maxAttempts: 3,
+          leaseGeneration: 2,
+          leaseExpiresAt: LEASE_EXPIRES_AT(),
+          state: "quarantined",
+        },
+      }),
+      persistScanResult: async () => { throw new Error("must not persist"); },
+    }, { scan: async () => { scannerCalls += 1; return {}; } }))
+      .rejects.toMatchObject({ code: "persistence_boundary_error" });
     expect(scannerCalls).toBe(0);
   });
 });
