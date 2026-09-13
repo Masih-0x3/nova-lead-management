@@ -104,7 +104,7 @@ async function replayMigrations(sql: Sql): Promise<void> {
     }
   }
   expect({ discovered: migrations.length, applied, skipped: SKIPPED.size })
-    .toEqual({ discovered: 72, applied: 70, skipped: 2 });
+    .toEqual({ discovered: 74, applied: 72, skipped: 2 });
 }
 
 function quoteLiteral(value: string): string {
