@@ -159,7 +159,11 @@ export async function createDiscoveryPlanService(
     limits: rawInput.limits,
   });
   if (!built.ok) throw planFailure(built.code);
-  const kind = await deps.repository.insertPlan(built.plan);
+  // createdAt is row metadata for the created_at column, not a domain field;
+  // the repository strips it from the stored payload. The returned plan stays
+  // the canonical domain object so parsePlan accepts it downstream.
+  const kind = await deps.repository.insertPlan(
+    Object.freeze({ ...built.plan, createdAt: nowIso(deps.clock) }));
   return Object.freeze({ kind, plan: built.plan });
 }
 

@@ -92,3 +92,46 @@ export function buildDisposableLeadKanbanUrl(baseUrl, fixture) {
   url.searchParams.set("search", fixture.name);
   return url.toString();
 }
+
+/**
+ * L-08 acceptance gate: mutating proofs against the isolated acceptance tenant
+ * on the local stack. Requires an explicit opt-in, a loopback base URL, and a
+ * loopback DATABASE_URL so the acceptance seed and degraded-path policy flips
+ * can run.
+ *
+ * @param {E2EEnvironment} [env]
+ */
+export function assertAcceptanceSafety(env = process.env) {
+  if (env.E2E_ACCEPTANCE !== "1") {
+    throw new Error("Acceptance E2E is disabled. Set E2E_ACCEPTANCE=1 to opt in.");
+  }
+
+  const baseUrl = env.E2E_BASE_URL ?? "http://localhost:3000";
+  let hostname;
+  try {
+    hostname = new URL(baseUrl).hostname;
+  } catch {
+    throw new Error(`E2E_BASE_URL is not a valid URL: ${baseUrl}`);
+  }
+  if (!LOOPBACK_HOSTS.has(hostname) && env.E2E_ALLOW_REMOTE_MUTATIONS !== "1") {
+    throw new Error(
+      `Refusing acceptance E2E against non-loopback host ${hostname}. The acceptance suite mutates a dedicated tenant and requires a disposable local target.`,
+    );
+  }
+
+  const databaseUrl = env.DATABASE_URL?.trim() ?? "";
+  if (!databaseUrl) {
+    throw new Error("Acceptance E2E requires DATABASE_URL for the acceptance seed and degraded-path proofs.");
+  }
+  let dbHostname;
+  try {
+    dbHostname = new URL(databaseUrl).hostname;
+  } catch {
+    throw new Error(`DATABASE_URL is not a valid URL: ${databaseUrl}`);
+  }
+  if (!LOOPBACK_HOSTS.has(dbHostname) && env.LOCAL_SEED_ALLOW_REMOTE !== "1") {
+    throw new Error(
+      `Refusing acceptance E2E against non-loopback database host ${dbHostname}. Set LOCAL_SEED_ALLOW_REMOTE=1 only for an approved disposable target.`,
+    );
+  }
+}

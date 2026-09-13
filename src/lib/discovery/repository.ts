@@ -463,6 +463,9 @@ export function createPostgresDiscoveryRepository(db: DbClient): DiscoveryReposi
   const repository: DiscoveryRepository & AccountRepository = {
     async insertPlan(plan) {
       const columns = planColumns(plan);
+      // createdAt is row metadata, not part of the hashed domain payload; the
+      // stored doc must contain exactly the plan fields parsePlan re-verifies.
+      const { createdAt: _rowCreatedAt, ...payload } = plan;
       const inserted = await db.prepare(
         `INSERT INTO public.discovery_plans
           (plan_id, tenant_id, workspace_id, plan_sha256, status, play_stable_key,
@@ -472,7 +475,7 @@ export function createPostgresDiscoveryRepository(db: DbClient): DiscoveryReposi
       ).all(
         columns.planId, columns.tenantId, columns.workspaceId, columns.planSha256,
         columns.playStableKey, columns.playVersionId, columns.playRevision,
-        jsonText(columns.sourceKeys), jsonText(columns.limits), jsonText(plan), columns.createdAt,
+        jsonText(columns.sourceKeys), jsonText(columns.limits), jsonText(payload), columns.createdAt,
       );
       if (!Array.isArray(inserted) || isProxy(inserted)) fail();
       return inserted.length === 1 ? "created" : "replayed";

@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { isProxy } from "node:util/types";
 
 import type { DbClient } from "@/lib/db";
-import type {
-  OutreachDraft,
-  OutreachDraftCurrentState,
-  OutreachDraftReviewSnapshot,
+import {
+  parseCurrentState,
+  type OutreachDraft,
+  type OutreachDraftCurrentState,
+  type OutreachDraftReviewSnapshot,
 } from "@/lib/outreach/draft-review";
 import type { OutreachExportReceipt } from "@/lib/outreach/export-receipt";
 import type { OutreachPolicyDecision } from "@/lib/outreach/policy-gate";
@@ -309,18 +310,13 @@ function rowToDraft(row: Record<string, unknown>): StoredOutreachDraft {
   });
 }
 
+/**
+ * The domain parser rebuilds every nested record in the exact key order the
+ * builder hashed before recomputing `stateHash`; hashing the raw jsonb payload
+ * would fail because Postgres does not preserve object key order.
+ */
 function verifyCurrentStatePayload(payload: unknown): OutreachDraftCurrentState | null {
-  if (!isPlainRecord(payload)) return null;
-  const state = payload as unknown as OutreachDraftCurrentState;
-  if (state.stateVersion !== 1 || typeof state.stableKey !== "string" || !SAFE_REF.test(state.stableKey)
-    || typeof state.tenantId !== "string" || !UUID.test(state.tenantId)
-    || typeof state.workspaceId !== "string" || !UUID.test(state.workspaceId)
-    || typeof state.accountId !== "string" || !UUID.test(state.accountId)
-    || !isPlainRecord(state.current) || !Array.isArray(state.events) || state.events.length === 0
-    || typeof state.stateHash !== "string" || !HASH.test(state.stateHash)) return null;
-  const { stateHash, ...rest } = state;
-  if (sha256(rest) !== stateHash) return null;
-  return state;
+  return parseCurrentState(payload);
 }
 
 function rowToCurrent(row: Record<string, unknown>): StoredOutreachCurrentState {
@@ -341,29 +337,75 @@ function rowToCurrent(row: Record<string, unknown>): StoredOutreachCurrentState 
   });
 }
 
+/**
+ * Both verifiers rebuild the hashed payload in the exact key order the domain
+ * builders used, because the stored jsonb document does not preserve the
+ * writer's key order and a raw `JSON.stringify` of it cannot reproduce the hash.
+ */
 function verifyReceiptPayload(payload: unknown): OutreachExportReceipt | null {
   if (!isPlainRecord(payload)) return null;
   const receipt = payload as unknown as OutreachExportReceipt;
+  const draft = isPlainRecord(receipt.draft) ? receipt.draft : null;
+  const policy = isPlainRecord(receipt.policy) ? receipt.policy : null;
+  const actor = isPlainRecord(receipt.actor) ? receipt.actor : null;
   if (receipt.receiptVersion !== 1 || typeof receipt.receiptId !== "string"
     || !RECEIPT_ID.test(receipt.receiptId)
     || (receipt.action !== "copy" && receipt.action !== "export")
     || receipt.completion !== "caller_attested"
-    || typeof receipt.receiptHash !== "string" || !HASH.test(receipt.receiptHash)) return null;
-  const { receiptId, receiptHash, ...rest } = receipt;
-  if (receiptId !== `outreach-export-receipt:${receiptHash.slice("sha256:".length)}`
-    || sha256(rest) !== receiptHash) return null;
+    || typeof receipt.receiptHash !== "string" || !HASH.test(receipt.receiptHash)
+    || !draft || !policy || !actor) return null;
+  const canonical = {
+    receiptVersion: 1,
+    tenantId: receipt.tenantId,
+    workspaceId: receipt.workspaceId,
+    accountId: receipt.accountId,
+    action: receipt.action,
+    completion: "caller_attested",
+    idempotencyKey: receipt.idempotencyKey,
+    draft: { versionId: draft.versionId, stateHash: draft.stateHash, reviewHash: draft.reviewHash },
+    policy: {
+      decisionHash: policy.decisionHash, policyVersion: policy.policyVersion, purpose: policy.purpose,
+    },
+    actor: { kind: actor.kind, actorId: actor.actorId },
+    decidedAt: receipt.decidedAt,
+    completedAt: receipt.completedAt,
+  };
+  if (sha256(canonical) !== receipt.receiptHash
+    || receipt.receiptId !== `outreach-export-receipt:${receipt.receiptHash.slice("sha256:".length)}`) {
+    return null;
+  }
   return receipt;
 }
 
 function verifyDecisionPayload(payload: unknown): OutreachPolicyDecision | null {
   if (!isPlainRecord(payload)) return null;
   const decision = payload as unknown as OutreachPolicyDecision;
+  const draft = isPlainRecord(decision.draft) ? decision.draft : null;
+  const contact = isPlainRecord(decision.contact) ? decision.contact : null;
+  const actor = isPlainRecord(decision.actor) ? decision.actor : null;
   if (decision.decisionVersion !== 1
     || (decision.result !== "allow" && decision.result !== "deny")
     || (decision.action !== "copy" && decision.action !== "export")
-    || typeof decision.decisionHash !== "string" || !HASH.test(decision.decisionHash)) return null;
-  const { decisionHash, ...rest } = decision;
-  if (sha256(rest) !== decisionHash) return null;
+    || typeof decision.decisionHash !== "string" || !HASH.test(decision.decisionHash)
+    || !draft || !contact || !actor || !Array.isArray(decision.reasons)) return null;
+  const canonical = {
+    decisionVersion: 1,
+    tenantId: decision.tenantId,
+    workspaceId: decision.workspaceId,
+    accountId: decision.accountId,
+    result: decision.result,
+    action: decision.action,
+    reasons: [...decision.reasons],
+    draft: { versionId: draft.versionId, stateHash: draft.stateHash, reviewHash: draft.reviewHash },
+    contact: {
+      versionId: contact.versionId, contentHash: contact.contentHash, reviewHash: contact.reviewHash,
+    },
+    policyVersion: decision.policyVersion,
+    purpose: decision.purpose,
+    actor: { kind: actor.kind, actorId: actor.actorId },
+    decidedAt: decision.decidedAt,
+  };
+  if (sha256(canonical) !== decision.decisionHash) return null;
   return decision;
 }
 

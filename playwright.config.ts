@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const includeMutatingProject = process.env.E2E_ALLOW_MUTATIONS === "1";
+const includeAcceptanceProject = process.env.E2E_ACCEPTANCE === "1";
 const storageState = process.env.E2E_STORAGE_STATE?.trim() || undefined;
 
 export default defineConfig({
@@ -20,6 +21,12 @@ export default defineConfig({
       ? [{
           name: "mutating",
           testMatch: /(excluded-drag-verify|excluded-to-verified|kanban-exclusion-prompt|lead-workbench-flow|leads-fixes-verify)\.spec\.ts/,
+        }]
+      : []),
+    ...(includeAcceptanceProject
+      ? [{
+          name: "acceptance",
+          testMatch: /acceptance-.*\.spec\.ts/,
         }]
       : []),
   ],

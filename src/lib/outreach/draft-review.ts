@@ -503,7 +503,7 @@ function createCurrentState(
   return Object.freeze({ ...payload, stateHash: sha256(payload) });
 }
 
-function parseCurrentState(value: unknown): OutreachDraftCurrentState | null {
+export function parseCurrentState(value: unknown): OutreachDraftCurrentState | null {
   const record = exactRecord(value, CURRENT_STATE_FIELDS);
   if (!record || record.stateVersion !== 1) return null;
   const tenantId = typeof record.tenantId === "string" && UUID.test(record.tenantId) ? record.tenantId : null;

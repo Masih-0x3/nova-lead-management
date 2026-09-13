@@ -4,7 +4,8 @@ export type SchedulerWorkerName =
   | "enrichment"
   | "artifact"
   | "score_recompute"
-  | "connector_execution";
+  | "connector_execution"
+  | "agent_runtime";
 
 export interface SchedulerWorkerMetadata {
   workerName: SchedulerWorkerName;
@@ -97,6 +98,19 @@ export const SCHEDULER_WORKER_METADATA: SchedulerWorkerMetadata[] = [
     costSource: "Fixture-only connector units reserved under approved source policies",
     inputLabel: "Queued or retryable source-run units",
     outputLabel: "Settled observations, usage records, and continuation units",
+    cadenceMinutes: 1,
+  },
+  {
+    workerName: "agent_runtime",
+    label: "Agent Runtime",
+    shortLabel: "Agent Runs",
+    purpose: "Claims one queued specialist agent run under its bound lease and executes the bounded fixture attempt.",
+    endpoint: "/api/agent-runtime/process-next",
+    schedule: "Dispatched per queued agent run",
+    externalApi: "None",
+    costSource: "Deterministic fixture provider only",
+    inputLabel: "Queued or retryable agent runs bound to the dispatch lease",
+    outputLabel: "Completed, failed, or rescheduled agent runs with immutable step and tool-call records",
     cadenceMinutes: 1,
   },
 ];

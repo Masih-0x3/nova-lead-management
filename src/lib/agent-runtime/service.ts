@@ -634,7 +634,8 @@ export async function executeAgentRunAttempt(
   const latencyMs = Math.max(0, Date.parse(clock.now()) - started);
   const recordedAt = clock.now();
 
-  const stepId = `step:${record.attemptCount}:execute`;
+  // Step/tool ids are globally unique primary keys, so they must carry the run id.
+  const stepId = `step:${request.runId}:${record.attemptCount}:execute`;
   if (!result.ok) {
     if (result.code === "RUN_CANCELLED") {
       try {
@@ -679,7 +680,7 @@ export async function executeAgentRunAttempt(
       ...ref,
       leaseToken: request.leaseToken,
       stepId,
-      toolCallId: `toolcall:${record.attemptCount}:model`,
+      toolCallId: `toolcall:${request.runId}:${record.attemptCount}:model`,
       toolName: "agent.model.invoke",
       toolVersion: "fixture@1",
       permissionDecision: "allowed",
@@ -740,7 +741,7 @@ async function finalizeFailure(
           ...ref,
           leaseToken,
           stepId,
-          toolCallId: `toolcall:${record.attemptCount}:model`,
+          toolCallId: `toolcall:${ref.runId}:${record.attemptCount}:model`,
           toolName: "agent.model.invoke",
           toolVersion: "fixture@1",
           permissionDecision: "allowed",

@@ -14,7 +14,10 @@ import {
 import { runWithTenantContext } from "@/lib/tenancy/context";
 
 import { createDeterministicFixtureProvider } from "./fixture-provider";
-import { createSeededAgentRuntimeRegistry } from "./registry";
+import {
+  createSeededAgentRuntimeRegistry,
+  seedL04AgentRuntimeRegistry,
+} from "./registry";
 import { createPostgresAgentRunStore } from "./run-store";
 import {
   cancelAgentRun,
@@ -98,6 +101,7 @@ export async function enqueueAuthenticatedAgentRun(
     rawScope, "agent-runtime:enqueue", dependencies);
   return runWithTenantContext(session, dependencies.correlationId, () =>
     withTenantDbContext(async (db) => {
+      await seedL04AgentRuntimeRegistry(db);
       const registry = await createSeededAgentRuntimeRegistry(db);
       return enqueueAgentRun(scope, request, {
         store: createPostgresAgentRunStore(db),

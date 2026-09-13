@@ -82,6 +82,7 @@ describe("scheduler v2 query behavior", () => {
   it("defines operations metadata for every scheduler worker", () => {
     expect(SCHEDULER_WORKER_NAMES).toEqual([
       "crawl", "enrichment", "ai_verification", "artifact", "score_recompute", "connector_execution",
+      "agent_runtime",
     ]);
     for (const worker of SCHEDULER_WORKER_METADATA) {
       expect(worker.endpoint).toMatch(/^\/api\//);
@@ -254,7 +255,7 @@ describe("scheduler v2 query behavior", () => {
   it("builds scheduler operations summary with zero-data cost and backlog defaults", async () => {
     const summary = await getSchedulerOperationsSummary();
 
-    expect(summary.health.workers).toHaveLength(6);
+    expect(summary.health.workers).toHaveLength(7);
     expect(summary.history).toHaveLength(0);
     expect(summary.costs.googleToday.cost).toBe(0);
     expect(summary.costs.googleMonth.calls).toBe(0);
