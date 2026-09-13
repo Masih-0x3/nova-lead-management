@@ -101,6 +101,7 @@ vi.mock("@/lib/outreach-package", () => ({ generateOutreachPackage: outreachPack
 
 import {
   addLeadNoteAction,
+  applyAiRecommendationAction,
   archiveLeadAction,
   assignLeadAction,
   bulkArchiveLeadsAction,
@@ -129,6 +130,8 @@ import {
   restoreArchivedLeadAction,
   restoreExcludedLeadAction,
   refreshStaleUnitsAction,
+  repairAiWebsiteViabilityBatchAction,
+  repairLeadAiWebsiteViabilityAction,
   saveLeadWorkUpdateAction,
   unclaimLeadAction,
   unpublishDemoForLeadAction,
@@ -138,6 +141,7 @@ import {
   updateLeadPhoneVerificationStatusAction,
   updateLeadReminderAction,
   updateLeadStatusAction,
+  updateLeadVerificationAction,
 } from "@/lib/leads/actions";
 import { TENANT_POLICY_DEFAULTS } from "@/lib/tenancy/schemas";
 
@@ -1051,5 +1055,115 @@ describe("lead ownership server actions", () => {
     expect(queryMocks.getLeadById).not.toHaveBeenCalled();
     expect(queryMocks.updateLeadPhoneVerificationStatus).not.toHaveBeenCalled();
     expect(queryMocks.createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("does not distinguish missing or foreign-tenant leads in updateLeadVerificationAction", async () => {
+    authMocks.requirePermission.mockResolvedValue({ userId: USER_A, email: "admin@example.com", role: "admin" });
+    queryMocks.getLeadById
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ ...baseLead, tenant_id: TENANT_B });
+
+    await expect(updateLeadVerificationAction("missing", "phone_works", true, TENANT_SELECTOR))
+      .resolves.toEqual({ error: "Lead not found" });
+    await expect(updateLeadVerificationAction("foreign", "phone_works", true, TENANT_SELECTOR))
+      .resolves.toEqual({ error: "Lead not found" });
+
+    expect(tenantAuthorizationMocks.requireTenantPermission).toHaveBeenCalledWith(
+      TENANT_SELECTOR,
+      "account:read",
+      { action: "lead.verification.update" },
+    );
+    expect(queryMocks.updateLeadVerification).not.toHaveBeenCalled();
+    expect(queryMocks.createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("writes tenant-scoped audit when updateLeadVerificationAction mutates an owned lead", async () => {
+    authMocks.requirePermission.mockResolvedValue({ userId: USER_A, email: "admin@example.com", role: "admin" });
+    queryMocks.getLeadById.mockResolvedValue({ ...baseLead, verification: {} });
+
+    await expect(updateLeadVerificationAction("lead-1", "phone_works", true, TENANT_SELECTOR))
+      .resolves.toEqual({ success: true, verification: { phone_works: true } });
+
+    expect(queryMocks.updateLeadVerification).toHaveBeenCalledWith("lead-1", { phone_works: true });
+    expect(tenantContextMocks.runWithTenantContext).toHaveBeenCalled();
+    expect(queryMocks.createAuditLog).toHaveBeenCalledWith("lead_verification_updated", "lead", "lead-1", { key: "phone_works" });
+  });
+
+  it("denies updateLeadVerificationAction to a canonical researcher before any lead read", async () => {
+    mockTenantRole("analyst_read_only");
+    authMocks.requirePermission.mockResolvedValue({ userId: USER_A, email: "ro@example.com", role: "researcher" });
+
+    await expect(updateLeadVerificationAction("lead-1", "phone_works", true, TENANT_SELECTOR))
+      .rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(queryMocks.getLeadById).not.toHaveBeenCalled();
+  });
+
+  it("does not disclose a foreign-tenant lead behind applyAiRecommendationAction", async () => {
+    authMocks.requirePermission.mockResolvedValue({ userId: USER_A, email: "admin@example.com", role: "admin" });
+    queryMocks.getAiVerificationById.mockResolvedValue({ id: "ver-1", lead_id: "lead-foreign", status: "site_found" });
+    queryMocks.getLeadById.mockResolvedValue({ ...baseLead, id: "lead-foreign", tenant_id: TENANT_B });
+
+    await expect(applyAiRecommendationAction("ver-1", "mark_manual_review", TENANT_SELECTOR))
+      .resolves.toEqual({ error: "Lead not found" });
+
+    expect(authMocks.requirePermission).toHaveBeenCalledWith("lead:apply_ai_opportunity");
+    expect(queryMocks.markLeadManualReview).not.toHaveBeenCalled();
+    expect(queryMocks.createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("does not distinguish a missing verification from an absent apply target", async () => {
+    authMocks.requirePermission.mockResolvedValue({ userId: USER_A, email: "admin@example.com", role: "admin" });
+    queryMocks.getAiVerificationById.mockResolvedValue(null);
+
+    await expect(applyAiRecommendationAction("missing", "mark_manual_review", TENANT_SELECTOR))
+      .resolves.toEqual({ error: "AI verification not found" });
+
+    expect(queryMocks.getLeadById).not.toHaveBeenCalled();
+    expect(queryMocks.markLeadManualReview).not.toHaveBeenCalled();
+  });
+
+  it("applies a manual-review recommendation under the resolved tenant context", async () => {
+    authMocks.requirePermission.mockResolvedValue({ userId: USER_A, email: "admin@example.com", role: "admin" });
+    queryMocks.getAiVerificationById.mockResolvedValue({
+      id: "ver-1",
+      lead_id: "lead-1",
+      status: "site_found",
+      reason: "uncertain match",
+    });
+    queryMocks.getLeadById.mockResolvedValue(baseLead);
+    queryMocks.markLeadManualReview.mockResolvedValue(1);
+
+    await expect(applyAiRecommendationAction("ver-1", "mark_manual_review", TENANT_SELECTOR))
+      .resolves.toEqual({ success: true });
+
+    expect(queryMocks.markLeadManualReview).toHaveBeenCalledWith("lead-1", "uncertain match");
+    expect(queryMocks.createAuditLog).toHaveBeenCalledWith("ai_manual_review_applied", "lead", "lead-1", { verificationId: "ver-1" });
+  });
+
+  it("fails a foreign lead before AI repair reads in repairLeadAiWebsiteViabilityAction", async () => {
+    authMocks.requirePermission.mockResolvedValue({ userId: USER_A, email: "admin@example.com", role: "admin" });
+    queryMocks.getLeadById.mockResolvedValue({ ...baseLead, tenant_id: TENANT_B });
+
+    await expect(repairLeadAiWebsiteViabilityAction("lead-foreign", TENANT_SELECTOR))
+      .resolves.toEqual({ error: "Lead not found" });
+
+    expect(queryMocks.getLatestAiVerification).not.toHaveBeenCalled();
+    expect(queryMocks.createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("scopes the viability repair batch to the resolved tenant context", async () => {
+    authMocks.requirePermission.mockResolvedValue({ userId: USER_A, email: "admin@example.com", role: "admin" });
+    queryMocks.getAiWebsiteViabilityRepairLeads.mockResolvedValue([]);
+
+    await expect(repairAiWebsiteViabilityBatchAction({ limit: 10 }, TENANT_SELECTOR))
+      .resolves.toEqual({ success: true, processed: 0, repaired: 0, errors: 0, results: [] });
+
+    expect(tenantAuthorizationMocks.requireTenantPermission).toHaveBeenCalledWith(
+      TENANT_SELECTOR,
+      "account:read",
+      { action: "lead.ai.viability_repair_batch" },
+    );
+    expect(queryMocks.getAiWebsiteViabilityRepairLeads).toHaveBeenCalledWith(10);
+    expect(queryMocks.createAuditLog).toHaveBeenCalledWith("ai_website_viability_repair_batch", "leads", undefined, { processed: 0 });
   });
 });

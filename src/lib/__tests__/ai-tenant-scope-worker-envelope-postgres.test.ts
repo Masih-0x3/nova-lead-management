@@ -421,7 +421,7 @@ describe("G-004A AI tenant scope and worker envelope", () => {
         expect(version.version.startsWith("16")).toBe(true);
 
         const full = await resetTo(client);
-        expect(full).toEqual({ discovered: 62, applied: 60, skipped: 2 });
+        expect(full).toEqual({ discovered: 77, applied: 75, skipped: 2 });
         await client.unsafe(g007p2Sql);
         const verificationIndexes = await client.unsafe<Array<{ indexname: string; indexdef: string }>>(`
           SELECT indexname,indexdef FROM pg_catalog.pg_indexes
@@ -825,8 +825,9 @@ describe("G-007P20A tenant researcher actor usage index", () => {
         const [version] = await client.unsafe<Array<{ version: string }>>("SELECT current_setting('server_version_num') version");
         expect(version.version.startsWith("16")).toBe(true);
 
-        // Pin the accepted source literals while keeping the current helper
-        // explicitly unscoped. G-014 still owns its tenant argument/cutover.
+        // Pin the accepted source literals. The helper resolves its tenant
+        // internally via requireAiTenantId and binds tenant_id first, matching
+        // the tenant-prefixed index this migration installs.
         expect(actionsSource.match(/const RESEARCHER_AI_REQUEST_SOURCES = \["researcher_ai_check", "researcher_pitch_pack"\];/g)).toHaveLength(1);
         const budgetSource = actionsSource.slice(
           actionsSource.indexOf("async function requireResearcherAiBudget("),
@@ -839,21 +840,23 @@ describe("G-007P20A tenant researcher actor usage index", () => {
           queriesSource.indexOf("export async function", queriesSource.indexOf("export async function getAiUsageForActor(") + 1),
         );
         expect(helperSource.match(/requestSources: string\[\] = \["researcher_ai_check", "researcher_pitch_pack"\]/g)).toHaveLength(1);
-        expect(helperSource).toContain("const params = [actorUserId, ...sources, sinceIso]");
+        expect(helperSource).toContain("requireAiTenantId(");
+        expect(helperSource).toContain("const params = [tenantId, actorUserId, ...sources, sinceIso]");
         const usageSelectStart = helperSource.indexOf("`SELECT id, verification_id, estimated_cost, was_cached, metadata");
         const usageSelectEnd = helperSource.indexOf(").all(...params)", usageSelectStart) + ").all(...params)".length;
         expect(usageSelectStart).toBeGreaterThanOrEqual(0);
         expect(usageSelectEnd).toBeGreaterThan(usageSelectStart);
         const usageSelectSource = helperSource.slice(usageSelectStart, usageSelectEnd);
         expect(usageSelectSource).toContain("FROM ai_usage_events");
-        expect(usageSelectSource).toContain("WHERE actor_user_id = ?");
+        expect(usageSelectSource).toContain("WHERE tenant_id = ?");
+        expect(usageSelectSource).toContain("AND actor_user_id = ?");
         expect(usageSelectSource).toContain("request_source IN (${placeholders})");
         expect(usageSelectSource).toContain("created_at >= ?");
-        expect(usageSelectSource).not.toMatch(/tenant_id|created_at\s*[<]=?/);
+        expect(usageSelectSource).not.toMatch(/created_at\s*[<]=?/);
 
         // Fresh empty install and exact final replay.
         const fresh = await resetTo(client, G007P20A);
-        expect(fresh).toEqual({ discovered: 62, applied: 51, skipped: 2 });
+        expect(fresh).toEqual({ discovered: 68, applied: 51, skipped: 2 });
         expect((await client.unsafe(`SELECT count(*)::integer count FROM pg_catalog.pg_class i
           JOIN pg_catalog.pg_namespace n ON n.oid=i.relnamespace
           WHERE n.nspname='public' AND i.relname LIKE 'idx_g007p20a_%'`))[0].count).toBe(0);
@@ -990,9 +993,9 @@ describe("G-007P20A tenant researcher actor usage index", () => {
         expect((await client.unsafe(`SELECT count(*)::integer count FROM pg_catalog.pg_indexes
           WHERE schemaname='public' AND indexname='${targetIndex}'`))[0].count).toBe(1);
 
-        // Upgrade a nonempty historical fixture. This is the approved
-        // tenant-added raw PostgreSQL proxy, not a claim that the current
-        // unscoped application caller already uses the tenant index.
+        // Upgrade a nonempty historical fixture. This raw PostgreSQL proxy
+        // mirrors the now tenant-scoped application caller's bind order and
+        // predicates, proving the installed index serves it naturally.
         await resetTo(client, G007P20A);
         await seedG007P20aUsageFixture(client, lowerBound);
         const beforeCatalog = await g007p20aCatalogSnapshot(client);
@@ -1099,7 +1102,7 @@ describe("G-007P20A tenant researcher actor usage index", () => {
         // Full-chain replay accounts for exactly one new portable migration,
         // then the migration itself remains an exact final no-op.
         const full = await resetTo(client);
-        expect(full).toEqual({ discovered: 62, applied: 60, skipped: 2 });
+        expect(full).toEqual({ discovered: 77, applied: 75, skipped: 2 });
         const finalBeforeReplay = await g007p20aCatalogSnapshot(client);
         await client.unsafe(g007p20aSql);
         expect(await g007p20aCatalogSnapshot(client)).toEqual(finalBeforeReplay);

@@ -1,9 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import type { DbClient } from "@/lib/db";
 import type { TenantPolicyEvaluator } from "@/lib/tenancy/authorize";
 import {
   createTenantMembershipAdministrationService,
+  hashAuthIdentitySelector,
   MembershipAdministrationError,
   type ApplyMembershipMutationInput,
   type ApplyMembershipMutationResult,
@@ -20,13 +21,15 @@ import {
   type TenantMembershipAdministrationService,
   type WorkspaceRecord,
 } from "@/lib/tenancy/memberships";
-import { authIdentityIdSchema } from "@/lib/tenancy/schemas";
 import type { LaunchRole, MembershipStatus, TenantId } from "@/lib/tenancy/types";
 
-const IDENTITY_HASH_DOMAIN = "novatrade:tenant-membership-invite:v1:auth-identity:";
 const LOCAL_POLICY_ACTIONS = new Set([
   "membership.invite",
   "membership.assign_role",
+  "membership.disable",
+  "membership.reactivate",
+  "membership.revoke",
+  "membership.remove",
 ]);
 const LOCAL_INVITE_HARD_CAP_PER_24_HOURS = 100;
 
@@ -45,9 +48,7 @@ export function isLocalMembershipAdministrationAvailable(): boolean {
 
 /** Hashes a verified provider subject without retaining a raw identity or email. */
 export function hashLocalAuthIdentitySelector(authIdentityId: unknown): string {
-  const parsed = authIdentityIdSchema.safeParse(authIdentityId);
-  if (!parsed.success) throw new MembershipAdministrationError("INVALID_INPUT");
-  return createHash("sha256").update(`${IDENTITY_HASH_DOMAIN}${parsed.data.toLowerCase()}`).digest("hex");
+  return hashAuthIdentitySelector(authIdentityId);
 }
 
 export function createLocalTenantMembershipAdministrationService(

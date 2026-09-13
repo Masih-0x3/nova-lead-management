@@ -244,6 +244,21 @@ export interface MembershipMutationResult {
   readonly replacementMembership: MembershipView | null;
 }
 
+/**
+ * Domain-separated, non-reversible reference for a verified provider subject.
+ * Invitation expected-identity hashes and pending membership selectors share
+ * this exact domain so acceptance can bind them without retaining the raw id.
+ */
+export const AUTH_IDENTITY_SELECTOR_HASH_DOMAIN =
+  "novatrade:tenant-membership-invite:v1:auth-identity:" as const;
+
+/** Hashes a verified provider subject without retaining a raw identity or email. */
+export function hashAuthIdentitySelector(authIdentityId: unknown): string {
+  const parsed = authIdentityIdSchema.safeParse(authIdentityId);
+  if (!parsed.success) throw new MembershipAdministrationError("INVALID_INPUT");
+  return sha256(`${AUTH_IDENTITY_SELECTOR_HASH_DOMAIN}${parsed.data.toLowerCase()}`);
+}
+
 export type MembershipAdministrationErrorCode =
   | "INVALID_INPUT"
   | "TENANT_SCOPE_REQUIRED"

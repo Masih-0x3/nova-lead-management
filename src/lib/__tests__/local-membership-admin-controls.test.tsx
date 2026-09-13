@@ -4,6 +4,16 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/tenancy/membership-admin-actions", () => ({
   inviteLocalTenantMembershipAction: vi.fn(),
   assignLocalTenantMembershipRoleAction: vi.fn(),
+  disableLocalTenantMembershipAction: vi.fn(),
+  reactivateLocalTenantMembershipAction: vi.fn(),
+  revokeLocalTenantMembershipAction: vi.fn(),
+  removeLocalTenantMembershipAction: vi.fn(),
+}));
+vi.mock("@/lib/tenancy/invitation-actions", () => ({
+  acceptLocalTenantInvitationAction: vi.fn(),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
 }));
 
 import { LocalMembershipAdminControls } from "@/components/admin/local-membership-admin-controls";
@@ -29,7 +39,7 @@ const HISTORY = [
 ] as const;
 
 describe("LocalMembershipAdminControls", () => {
-  it("exposes only invite and role controls when local canonical mutations are enabled", () => {
+  it("exposes invite, role, and member-state controls when local canonical mutations are enabled", () => {
     const html = renderToStaticMarkup(
       <LocalMembershipAdminControls actor={OWNER} memberships={[OWNER, MEMBER]} history={HISTORY} mutationsEnabled />,
     );
@@ -37,18 +47,19 @@ describe("LocalMembershipAdminControls", () => {
     expect(html).toContain('data-local-membership-mutations="enabled"');
     expect(html).toMatch(/>Invite member<\/button>/u);
     expect(html).toMatch(/>Change role<\/button>/u);
-    expect(html).not.toMatch(/>Suspend member<\/button>/u);
+    expect(html).toMatch(/>Suspend member<\/button>/u);
+    expect(html).toMatch(/>Remove member<\/button>/u);
     expect(html).not.toMatch(/<(?:input|select|form)\b/u);
   });
 
-  it("keeps PostgreSQL mode visibly read-only and renders no mutation buttons", () => {
+  it("keeps a non-admin actor visibly read-only and renders no mutation buttons", () => {
     const html = renderToStaticMarkup(
       <LocalMembershipAdminControls actor={OWNER} memberships={[OWNER, MEMBER]} history={HISTORY} mutationsEnabled={false} />,
     );
 
     expect(html).toContain('data-local-membership-mutations="read-only"');
-    expect(html).toContain("Local invitation and role controls are unavailable when PostgreSQL is configured");
-    expect(html).not.toMatch(/>(?:Invite member|Change role|Suspend member)<\/button>/u);
+    expect(html).toContain("Membership administration is read-only for this role");
+    expect(html).not.toMatch(/>(?:Invite member|Change role|Suspend member|Reactivate member|Revoke invitation|Remove member)<\/button>/u);
     expect(html).not.toMatch(/<(?:input|select|form)\b/u);
   });
 });

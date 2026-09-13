@@ -5,6 +5,60 @@ export type AuthIdentityId = string;
 export type ProvisioningRequestId = string;
 export type SupportGrantId = string;
 export type WorkerLeaseId = string;
+export type TenantInvitationId = string;
+
+export const TENANT_INVITATION_KINDS = ["owner", "member"] as const;
+export type TenantInvitationKind = (typeof TENANT_INVITATION_KINDS)[number];
+
+export const TENANT_INVITATION_STATUSES = [
+  "issued",
+  "accepted",
+  "revoked",
+  "superseded",
+  "expired",
+] as const;
+export type TenantInvitationStatus = (typeof TENANT_INVITATION_STATUSES)[number];
+
+export const TENANT_INVITATION_DELIVERY_STATES = [
+  "queued",
+  "delivered",
+  "delivery_failed",
+] as const;
+export type TenantInvitationDeliveryState = (typeof TENANT_INVITATION_DELIVERY_STATES)[number];
+
+/**
+ * Durable tenant-scoped invitation record. Raw delivery tokens and provider
+ * secrets never appear on this record; only non-reversible hashes/references.
+ */
+export interface TenantInvitation {
+  id: TenantInvitationId;
+  tenantId: TenantId;
+  membershipId: MembershipId;
+  provisioningRequestId: ProvisioningRequestId | null;
+  kind: TenantInvitationKind;
+  role: LaunchRole;
+  workspaceId: WorkspaceId | null;
+  expectedIdentityRefHash: string;
+  policyVersion: WorkflowPolicyVersion;
+  generation: number;
+  contentHash: string;
+  status: TenantInvitationStatus;
+  deliveryState: TenantInvitationDeliveryState;
+  deliveryAdapter: string | null;
+  deliveryRefHash: string | null;
+  deliveryDetail: string | null;
+  issuedAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  acceptedAuthIdentityId: AuthIdentityId | null;
+  revokedAt: string | null;
+  revokedReasonCode: string | null;
+  supersededByInvitationId: TenantInvitationId | null;
+  correlationId: CorrelationId;
+  auditEventId: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export const TENANT_EXPORT_JOB_OPERATION = "tenant_data_export" as const;
 
@@ -353,6 +407,30 @@ export const PROVISIONING_RESULT_CODES = [
   "TENANT_STATE_BLOCKED",
 ] as const;
 export type ProvisioningResultCode = (typeof PROVISIONING_RESULT_CODES)[number];
+
+export const TENANT_INVITATION_RESULT_CODES = [
+  "INVITATION_ACCEPTED",
+  "INVITATION_ISSUED",
+  "INVITATION_REISSUED",
+  "INVITATION_REVOKED",
+  "INVITATION_DELIVERY_RECORDED",
+  "INVITATION_NOT_AUTHORIZED",
+  "INVITE_NOT_FOUND",
+  "INVITE_EXPIRED",
+  "INVITE_REVOKED",
+  "INVITE_ALREADY_ACCEPTED",
+  "INVITE_RECIPIENT_MISMATCH",
+  "INVITE_DELIVERY_UNAVAILABLE",
+  "PROVISIONING_STATE_BLOCKED",
+  "TENANT_STATE_BLOCKED",
+  "PROVISIONING_IDEMPOTENCY_CONFLICT",
+  "PROVISIONING_IN_PROGRESS",
+  "PROVISIONING_CONFLICT",
+  "PROVISIONING_RETRYABLE",
+  "INVALID_INPUT",
+  "SERVICE_MISCONFIGURED",
+] as const;
+export type TenantInvitationResultCode = (typeof TENANT_INVITATION_RESULT_CODES)[number];
 
 export const AUTHORIZATION_RESULT_CODES = [
   "AUTH_REQUIRED",

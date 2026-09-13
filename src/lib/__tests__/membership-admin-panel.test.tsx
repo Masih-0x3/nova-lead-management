@@ -147,6 +147,41 @@ describe("MembershipAdminPanel", () => {
     expect(policyBlocked.match(/data-permission-allowed="false"/g)).toHaveLength(3);
   });
 
+  it("offers reactivate, revoke, and remove callbacks only for state-appropriate targets", () => {
+    const disabled: MembershipView = {
+      tenantId: TENANT_ID,
+      membershipId: "30000000-0000-4000-8000-000000000004",
+      status: "disabled",
+      role: "analyst_read_only",
+      workspaceId: null,
+    };
+    const disabledHistory: MembershipHistoryView = {
+      ...disabled,
+      roleBindings: [
+        { id: "role-binding-analyst", role: "analyst_read_only", revokedAt: null, reasonCode: "role_change" },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <MembershipAdminPanel
+        state="ready"
+        actor={owner}
+        memberships={[owner, researcher, disabled, invitation]}
+        history={[...history, disabledHistory]}
+        policyAuthorizations={authorizations}
+        onSuspend={() => undefined}
+        onReactivate={() => undefined}
+        onRevoke={() => undefined}
+        onRemove={() => undefined}
+      />,
+    );
+
+    expect(html.match(/>Suspend member<\/button>/g)).toHaveLength(1);
+    expect(html.match(/>Reactivate member<\/button>/g)).toHaveLength(1);
+    expect(html.match(/>Revoke invitation<\/button>/g)).toHaveLength(1);
+    expect(html.match(/>Remove member<\/button>/g)).toHaveLength(2);
+    expect(html).not.toContain(`aria-label="Human actions for membership ${OWNER_ID}"`);
+  });
+
   it("fails closed without enumerating records when actor permission or tenant scope is invalid", () => {
     const unauthorizedActor = { ...researcher, workspaceId: null };
     const denied = renderToStaticMarkup(

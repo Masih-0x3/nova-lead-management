@@ -56,6 +56,10 @@ export type TenantDeletionJobView = Readonly<{
   auditEventId: string;
   createdAt: string;
   updatedAt: string;
+  /** Actor identities gate verify/approve independence on the client; the service rechecks. */
+  requestedByAuthIdentityId?: string;
+  verifiedByAuthIdentityId?: string | null;
+  approvedByAuthIdentityId?: string | null;
 }>;
 
 type ReadyProps = Readonly<{
@@ -186,12 +190,19 @@ function validDeletionJob(job: TenantDeletionJobView): boolean {
   const primaryDataGone = ["primary_deleted", "backup_aging", "completed"].includes(job.status);
   if (primaryDataGone !== (job.backupExpiryTargetAt !== null)) return false;
 
-  if (job.checkpoints.length !== TENANT_DELETION_CHECKPOINT_STORES.length
-    || new Set(job.checkpoints.map(({ store }) => store)).size !== TENANT_DELETION_CHECKPOINT_STORES.length
-    || !TENANT_DELETION_CHECKPOINT_STORES.every((store) => job.checkpoints.some((checkpoint) => checkpoint.store === store))) return false;
-  if (job.checkpoints.some((checkpoint) => !checkpoint.required
-    || !TENANT_DELETION_CHECKPOINT_STATUSES.includes(checkpoint.status)
-    || validateTenantDeletionCheckpointTransition(checkpoint.status, checkpoint.status, checkpoint) !== null)) return false;
+  // Pre-run jobs carry no checkpoints — the canonical set is established when
+  // the scheduled run starts. Post-start states require the full set.
+  const checkpointRequired = !["requested", "verified", "scheduled", "canceled"].includes(job.status);
+  if (job.checkpoints.length === 0) {
+    if (checkpointRequired) return false;
+  } else {
+    if (job.checkpoints.length !== TENANT_DELETION_CHECKPOINT_STORES.length
+      || new Set(job.checkpoints.map(({ store }) => store)).size !== TENANT_DELETION_CHECKPOINT_STORES.length
+      || !TENANT_DELETION_CHECKPOINT_STORES.every((store) => job.checkpoints.some((checkpoint) => checkpoint.store === store))) return false;
+    if (job.checkpoints.some((checkpoint) => !checkpoint.required
+      || !TENANT_DELETION_CHECKPOINT_STATUSES.includes(checkpoint.status)
+      || validateTenantDeletionCheckpointTransition(checkpoint.status, checkpoint.status, checkpoint) !== null)) return false;
+  }
   if (["primary_deleted", "backup_aging"].includes(job.status)
     && !canEnterTenantDeletionPrimaryDeleted({ checkpoints: job.checkpoints })) return false;
 
@@ -310,12 +321,20 @@ function DeletionCard({ job }: Readonly<{ job: TenantDeletionJobView | null }>) 
       </div>
       <div className="mt-4 rounded-xl border p-3" style={{ borderColor: "var(--surface-card-border)", background: "var(--surface-muted)" }}>
         <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{cleared} of {job.checkpoints.length} checkpoints cleared</span>
-          <span className="tabular-nums" style={{ color: "var(--text-secondary)" }}>{Math.round((cleared / job.checkpoints.length) * 100)}%</span>
+          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+            {job.checkpoints.length === 0
+              ? "Checkpoints are established when the approved run starts"
+              : `${cleared} of ${job.checkpoints.length} checkpoints cleared`}
+          </span>
+          {job.checkpoints.length > 0 ? (
+            <span className="tabular-nums" style={{ color: "var(--text-secondary)" }}>{Math.round((cleared / job.checkpoints.length) * 100)}%</span>
+          ) : null}
         </div>
-        <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: "var(--status-muted-bg)" }} aria-hidden="true">
-          <div className="h-full rounded-full" style={{ width: `${(cleared / job.checkpoints.length) * 100}%`, background: "var(--accent)" }} />
-        </div>
+        {job.checkpoints.length > 0 ? (
+          <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: "var(--status-muted-bg)" }} aria-hidden="true">
+            <div className="h-full rounded-full" style={{ width: `${(cleared / job.checkpoints.length) * 100}%`, background: "var(--accent)" }} />
+          </div>
+        ) : null}
       </div>
       <dl className="mt-3 grid gap-3 sm:grid-cols-2">
         <Fact label="Legal hold">{HOLD_LABEL[job.legalHoldStatus]}</Fact>
@@ -326,6 +345,11 @@ function DeletionCard({ job }: Readonly<{ job: TenantDeletionJobView | null }>) 
         <Fact label="Recorded audit event" mono>{job.auditEventId}</Fact>
       </dl>
       <ul className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Deletion checkpoint status">
+        {job.checkpoints.length === 0 ? (
+          <li className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "var(--table-row-border)", color: "var(--text-secondary)" }}>
+            The verified checkpoint set appears here once the scheduled run establishes it.
+          </li>
+        ) : null}
         {job.checkpoints.map((checkpoint) => (
           <li key={checkpoint.store} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "var(--table-row-border)" }}>
             <span className="break-words" style={{ color: "var(--text-secondary)" }}>{words(checkpoint.store)}</span>
@@ -347,8 +371,9 @@ export function DataLifecyclePanel(props: DataLifecyclePanelProps) {
   const deletionPermission = permissionState(props, "data:delete");
   const canRequestExport = exportPermission.allowed && (props.exportJob === null || ["canceled", "deleted"].includes(props.exportJob.status));
   const canCancelExport = exportPermission.allowed && props.exportJob !== null && isTransitionAllowed(props.exportJob.status, "canceled");
+  // retry_wait entry consumes one slot: retry_count + 1 must stay < max_retries.
   const canRetryExport = exportPermission.allowed && props.exportJob?.status === "failed"
-    && props.exportJob.retryCount < props.exportJob.maxRetries && isTransitionAllowed("failed", "retry_wait");
+    && props.exportJob.retryCount + 1 < props.exportJob.maxRetries && isTransitionAllowed("failed", "retry_wait");
   const canRequestDeletion = deletionPermission.allowed && (props.deletionJob === null || props.deletionJob.status === "canceled");
   const canCancelDeletion = deletionPermission.allowed && props.deletionJob !== null && validateTenantDeletionTransition({
     from: props.deletionJob.status,

@@ -24,6 +24,11 @@ const localMocks = vi.hoisted(() => ({
   listCurrent: vi.fn(),
   listHistory: vi.fn(),
 }));
+const pgMocks = vi.hoisted(() => ({
+  createService: vi.fn(),
+  listCurrent: vi.fn(),
+  listHistory: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => authMocks);
 vi.mock("@/lib/db/index", () => dbIndexMocks);
@@ -34,6 +39,15 @@ vi.mock("@/lib/tenancy/local-membership-administration", () => ({
   isLocalMembershipAdministrationAvailable: localMocks.isLocalMembershipAdministrationAvailable,
   createLocalTenantMembershipAdministrationService: localMocks.createLocalTenantMembershipAdministrationService,
   hashLocalAuthIdentitySelector: vi.fn(),
+}));
+vi.mock("@/lib/tenancy/postgres-membership-administration", () => ({
+  createPostgresTenantMembershipAdministrationService: pgMocks.createService,
+}));
+vi.mock("@/lib/tenancy/invitation-actions", () => ({
+  acceptLocalTenantInvitationAction: vi.fn(),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
 }));
 
 import UsersPage from "@/app/(protected)/users/page";
@@ -120,24 +134,6 @@ const TERMINAL_HISTORY = {
     reasonCode: "invitation",
   }],
 } as const;
-const TERMINAL_DIRECTORY = {
-  id: TERMINAL_MEMBERSHIP_ID,
-  tenantId: TENANT_ID,
-  workspaceId: null,
-  status: "revoked",
-  actorIdentityMatches: false,
-} as const;
-const TERMINAL_ROLE = {
-  id: TERMINAL_ROLE_BINDING_ID,
-  tenantId: TENANT_ID,
-  membershipId: TERMINAL_MEMBERSHIP_ID,
-  role: "researcher",
-  createdAt: "2026-08-20T00:00:00.000Z",
-  validFrom: "2026-08-20T00:00:00.000Z",
-  revokedAt: "2026-08-29T00:00:00.000Z",
-  assignedByMembershipId: MEMBERSHIP_ID,
-  reasonCode: "invitation",
-} as const;
 
 describe("UsersPage canonical membership boundary", () => {
   beforeEach(() => {
@@ -149,6 +145,12 @@ describe("UsersPage canonical membership boundary", () => {
       listCurrent: localMocks.listCurrent,
       listHistory: localMocks.listHistory,
     });
+    pgMocks.createService.mockReturnValue({
+      listCurrent: pgMocks.listCurrent,
+      listHistory: pgMocks.listHistory,
+    });
+    pgMocks.listCurrent.mockResolvedValue([ACTOR_VIEW]);
+    pgMocks.listHistory.mockResolvedValue([ACTOR_HISTORY]);
     localMocks.listCurrent.mockResolvedValue([ACTOR_VIEW]);
     localMocks.listHistory.mockResolvedValue([ACTOR_HISTORY]);
     repositoryMocks.listMemberships.mockResolvedValue([ACTOR_MEMBERSHIP]);
@@ -171,29 +173,26 @@ describe("UsersPage canonical membership boundary", () => {
     expect(authorizationMocks.assertTenantPermission).toHaveBeenCalledWith(TENANT_SESSION, "membership:read", { action: "users.page" });
   });
 
-  it("keeps PostgreSQL mode canonical and read-only without rendering mutation controls", async () => {
+  it("serves PostgreSQL mode through the canonical membership service with owner controls enabled", async () => {
     localMocks.isLocalMembershipAdministrationAvailable.mockReturnValue(false);
     const html = renderToStaticMarkup(await UsersPage() as React.ReactElement);
 
-    expect(html).toContain('data-local-membership-mutations="read-only"');
-    expect(html).toContain("read-only in this deployment");
-    expect(html).not.toMatch(/>Invite member<\/button>/u);
-    expect(html).toContain("2 recorded role bindings");
-    expect(html).toContain("Administrator · role change");
-    expect(repositoryMocks.listMembershipDirectory).toHaveBeenCalledWith(TENANT_ID, MEMBERSHIP_ID, USER_ID);
-    expect(repositoryMocks.listRoleBindings).toHaveBeenCalledWith(TENANT_ID);
+    expect(html).toContain("Tenant access and responsibility");
+    expect(html).toContain(MEMBERSHIP_ID);
+    expect(html).toContain('data-local-membership-mutations="enabled"');
+    expect(pgMocks.createService).toHaveBeenCalled();
+    expect(pgMocks.listCurrent).toHaveBeenCalledWith(TENANT_SESSION);
+    expect(pgMocks.listHistory).toHaveBeenCalledWith(TENANT_SESSION);
+    expect(localMocks.createLocalTenantMembershipAdministrationService).not.toHaveBeenCalled();
+    expect(repositoryMocks.listMembershipDirectory).not.toHaveBeenCalled();
+    expect(repositoryMocks.listRoleBindings).not.toHaveBeenCalled();
     expect(repositoryMocks.listMemberships).not.toHaveBeenCalled();
     expect(repositoryMocks.getCurrentRoleBinding).not.toHaveBeenCalled();
-    expect(localMocks.createLocalTenantMembershipAdministrationService).not.toHaveBeenCalled();
   });
 
-  it("fails PostgreSQL history closed when a role becomes valid before it was created", async () => {
+  it("fails PostgreSQL current/history projections closed when the service snapshots disagree", async () => {
     localMocks.isLocalMembershipAdministrationAvailable.mockReturnValue(false);
-    repositoryMocks.listRoleBindings.mockResolvedValue([{
-      ...ACTOR_ROLE,
-      createdAt: "2026-08-30T00:00:00.000Z",
-      validFrom: "2026-08-29T00:00:00.000Z",
-    }]);
+    pgMocks.listHistory.mockResolvedValue([{ ...ACTOR_HISTORY, status: "suspended" }]);
 
     const html = renderToStaticMarkup(await UsersPage() as React.ReactElement);
 
@@ -201,9 +200,10 @@ describe("UsersPage canonical membership boundary", () => {
     expect(html).not.toContain("Tenant access and responsibility");
   });
 
-  it("fails PostgreSQL membership projection closed when the actor identity linkage does not match", async () => {
+  it("fails PostgreSQL projection closed when the actor role disagrees with the session", async () => {
     localMocks.isLocalMembershipAdministrationAvailable.mockReturnValue(false);
-    repositoryMocks.listMembershipDirectory.mockResolvedValue([{ ...ACTOR_DIRECTORY, actorIdentityMatches: false }]);
+    pgMocks.listCurrent.mockResolvedValue([{ ...ACTOR_VIEW, role: "admin" }]);
+    pgMocks.listHistory.mockResolvedValue([{ ...ACTOR_HISTORY, role: "admin" }]);
 
     const html = renderToStaticMarkup(await UsersPage() as React.ReactElement);
 
@@ -213,8 +213,8 @@ describe("UsersPage canonical membership boundary", () => {
 
   it("keeps terminal PostgreSQL memberships in complete history but out of current membership cards", async () => {
     localMocks.isLocalMembershipAdministrationAvailable.mockReturnValue(false);
-    repositoryMocks.listMembershipDirectory.mockResolvedValue([ACTOR_DIRECTORY, TERMINAL_DIRECTORY]);
-    repositoryMocks.listRoleBindings.mockResolvedValue([PRIOR_ACTOR_ROLE, ACTOR_ROLE, TERMINAL_ROLE]);
+    pgMocks.listCurrent.mockResolvedValue([ACTOR_VIEW]);
+    pgMocks.listHistory.mockResolvedValue([ACTOR_HISTORY, TERMINAL_HISTORY]);
 
     const html = renderToStaticMarkup(await UsersPage() as React.ReactElement);
 
@@ -252,16 +252,17 @@ describe("UsersPage canonical membership boundary", () => {
   });
 
   it.each([
-    ["foreign role history", [ACTOR_DIRECTORY], [{ ...ACTOR_ROLE, tenantId: "10000000-0000-4000-8000-000000000002" }]],
-    ["orphan role history", [ACTOR_DIRECTORY], [{ ...ACTOR_ROLE, membershipId: "30000000-0000-4000-8000-000000000099" }]],
-    ["multiple current roles", [ACTOR_DIRECTORY], [ACTOR_ROLE, { ...ACTOR_ROLE, id: "40000000-0000-4000-8000-000000000099", role: "admin" }]],
-    ["actor role mismatch", [ACTOR_DIRECTORY], [{ ...ACTOR_ROLE, role: "admin" }]],
-    ["duplicate membership projection", [ACTOR_DIRECTORY, ACTOR_DIRECTORY], [ACTOR_ROLE]],
-    ["terminal membership with current role", [ACTOR_DIRECTORY, TERMINAL_DIRECTORY], [ACTOR_ROLE, { ...TERMINAL_ROLE, revokedAt: null }]],
-  ])("fails malformed PostgreSQL current/history projections closed: %s", async (_label, memberships, bindings) => {
+    ["current member missing from history", [ACTOR_VIEW, { ...TERMINAL_VIEW, status: "active", role: "researcher" }], [ACTOR_HISTORY]],
+    ["non-terminal history phantom", [ACTOR_VIEW], [ACTOR_HISTORY, { ...TERMINAL_HISTORY, status: "active", role: "researcher" }]],
+    ["current/history fact mismatch", [ACTOR_VIEW], [{ ...ACTOR_HISTORY, status: "suspended" }]],
+    ["terminal member appears current", [ACTOR_VIEW, TERMINAL_VIEW], [ACTOR_HISTORY, TERMINAL_HISTORY]],
+    ["duplicate current member", [ACTOR_VIEW, ACTOR_VIEW], [ACTOR_HISTORY]],
+    ["duplicate history member", [ACTOR_VIEW], [ACTOR_HISTORY, ACTOR_HISTORY]],
+    ["foreign tenant row", [{ ...ACTOR_VIEW, tenantId: "10000000-0000-4000-8000-000000000002" }], [ACTOR_HISTORY]],
+  ])("fails malformed PostgreSQL current/history projections closed: %s", async (_label, current, history) => {
     localMocks.isLocalMembershipAdministrationAvailable.mockReturnValue(false);
-    repositoryMocks.listMembershipDirectory.mockResolvedValue(memberships);
-    repositoryMocks.listRoleBindings.mockResolvedValue(bindings);
+    pgMocks.listCurrent.mockResolvedValue(current);
+    pgMocks.listHistory.mockResolvedValue(history);
 
     const html = renderToStaticMarkup(await UsersPage() as React.ReactElement);
 

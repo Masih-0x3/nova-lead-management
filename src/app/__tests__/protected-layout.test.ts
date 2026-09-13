@@ -16,17 +16,28 @@ const tenantMocks = vi.hoisted(() => ({
   withTenantDbContext: vi.fn((callback: () => unknown) => callback()),
 }));
 
+const membershipAdminMocks = vi.hoisted(() => ({
+  isLocalMembershipAdministrationAvailable: vi.fn(() => true),
+}));
+
+const acceptControlMocks = vi.hoisted(() => ({
+  InvitationAcceptControl: vi.fn(() => null),
+}));
+
 vi.mock("@/lib/auth", () => authMocks);
 vi.mock("@/lib/db", () => ({ withTenantDbContext: tenantMocks.withTenantDbContext }));
 vi.mock("@/lib/db/queries", () => queryMocks);
 vi.mock("@/lib/tenancy/authorize", () => ({ assertTenantPermission: tenantMocks.assertTenantPermission }));
 vi.mock("@/lib/tenancy/context", () => ({ runWithTenantContext: tenantMocks.runWithTenantContext }));
+vi.mock("@/lib/tenancy/local-membership-administration", () => membershipAdminMocks);
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@/app/login/actions", () => ({ logoutAction: vi.fn() }));
 vi.mock("@/components/nav-header", () => ({ NavHeader: vi.fn(() => null) }));
+vi.mock("@/components/admin/invitation-accept-control", () => acceptControlMocks);
 
 import ProtectedLayout from "@/app/(protected)/layout";
 import { NavHeader } from "@/components/nav-header";
+import { InvitationAcceptControl } from "@/components/admin/invitation-accept-control";
 
 type NavScope = {
   tenantLabel: string;
@@ -145,5 +156,46 @@ describe("protected layout tenant scope", () => {
       expect.any(Function),
     );
     expect(tenantMocks.withTenantDbContext).toHaveBeenCalledOnce();
+  });
+});
+
+describe("protected layout pending access", () => {
+  const pendingSession = {
+    userId: "50000000-0000-4000-8000-000000000005",
+    email: "invitee@example.com",
+    displayName: null,
+    role: null,
+    status: "pending",
+  };
+
+  function containsAcceptControl(node: unknown): boolean {
+    let found = false;
+    Children.forEach(node, (child) => {
+      if (found || !isValidElement(child)) return;
+      if (child.type === InvitationAcceptControl) {
+        found = true;
+        return;
+      }
+      const props = child.props as { children?: unknown };
+      if (props?.children) found = containsAcceptControl(props.children);
+    });
+    return found;
+  }
+
+  it("offers invitation acceptance to a pending session when local membership administration is available", async () => {
+    authMocks.getSession.mockResolvedValue(pendingSession);
+    membershipAdminMocks.isLocalMembershipAdministrationAvailable.mockReturnValue(true);
+
+    const layout = await ProtectedLayout({ children: "content" });
+    expect(containsAcceptControl(layout)).toBe(true);
+  });
+
+  it("hides invitation acceptance for disabled sessions but keeps it under PostgreSQL where acceptance is supported", async () => {
+    authMocks.getSession.mockResolvedValue({ ...pendingSession, status: "disabled" });
+    expect(containsAcceptControl(await ProtectedLayout({ children: "content" }))).toBe(false);
+
+    authMocks.getSession.mockResolvedValue(pendingSession);
+    membershipAdminMocks.isLocalMembershipAdministrationAvailable.mockReturnValue(false);
+    expect(containsAcceptControl(await ProtectedLayout({ children: "content" }))).toBe(true);
   });
 });

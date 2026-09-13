@@ -21,6 +21,9 @@ type ReadyProps = Readonly<{
   onInvite?: () => void;
   onChangeRole?: (membership: MembershipView) => void;
   onSuspend?: (membership: MembershipView) => void;
+  onReactivate?: (membership: MembershipView) => void;
+  onRevoke?: (membership: MembershipView) => void;
+  onRemove?: (membership: MembershipView) => void;
   error?: never;
 }>;
 
@@ -63,7 +66,7 @@ const ROLE_LABEL: Readonly<Record<LaunchRole, string>> = Object.freeze({
 const PERMISSION_LABEL: Readonly<Record<MutationPermission, string>> = Object.freeze({
   "membership:invite": "Invite members",
   "role:assign": "Change roles",
-  "membership:manage": "Suspend members",
+  "membership:manage": "Manage member state",
 });
 
 function StatePanel({ state, message }: Readonly<{ state: "loading" | "error" | "empty" | "denied"; message: string }>) {
@@ -138,6 +141,9 @@ function MembershipCard({
   canSuspend,
   onChangeRole,
   onSuspend,
+  onReactivate,
+  onRevoke,
+  onRemove,
 }: Readonly<{
   membership: MembershipView;
   actor: MembershipView;
@@ -145,6 +151,9 @@ function MembershipCard({
   canSuspend: boolean;
   onChangeRole?: (membership: MembershipView) => void;
   onSuspend?: (membership: MembershipView) => void;
+  onReactivate?: (membership: MembershipView) => void;
+  onRevoke?: (membership: MembershipView) => void;
+  onRemove?: (membership: MembershipView) => void;
 }>) {
   const isActor = membership.membershipId === actor.membershipId;
   const roleChangeAllowed = canChangeRole
@@ -157,6 +166,20 @@ function MembershipCard({
     && membership.status === "active"
     && membership.role !== "owner"
     && Boolean(onSuspend);
+  const reactivateAllowed = canSuspend
+    && !isActor
+    && membership.status === "disabled"
+    && membership.role !== "owner"
+    && Boolean(onReactivate);
+  const revokeAllowed = canSuspend
+    && !isActor
+    && membership.status === "pending"
+    && Boolean(onRevoke);
+  const removeAllowed = canSuspend
+    && !isActor
+    && membership.role !== "owner"
+    && (membership.status === "active" || membership.status === "suspended" || membership.status === "disabled")
+    && Boolean(onRemove);
   const titleId = `membership-${membership.membershipId}-title`;
 
   return (
@@ -186,7 +209,7 @@ function MembershipCard({
         </div>
       </dl>
 
-      {roleChangeAllowed || suspendAllowed ? (
+      {roleChangeAllowed || suspendAllowed || reactivateAllowed || revokeAllowed || removeAllowed ? (
         <footer className="mt-3 flex flex-wrap gap-2 border-t pt-3" aria-label={`Human actions for membership ${membership.membershipId}`} style={{ borderColor: "var(--table-row-border)" }}>
           {roleChangeAllowed ? (
             <button
@@ -206,6 +229,36 @@ function MembershipCard({
               onClick={() => onSuspend?.(membership)}
             >
               Suspend member
+            </button>
+          ) : null}
+          {reactivateAllowed ? (
+            <button
+              type="button"
+              className="rounded-lg border px-3 py-2 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={TONE_STYLE.accent}
+              onClick={() => onReactivate?.(membership)}
+            >
+              Reactivate member
+            </button>
+          ) : null}
+          {revokeAllowed ? (
+            <button
+              type="button"
+              className="rounded-lg border px-3 py-2 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={TONE_STYLE.warning}
+              onClick={() => onRevoke?.(membership)}
+            >
+              Revoke invitation
+            </button>
+          ) : null}
+          {removeAllowed ? (
+            <button
+              type="button"
+              className="rounded-lg border px-3 py-2 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={TONE_STYLE.danger}
+              onClick={() => onRemove?.(membership)}
+            >
+              Remove member
             </button>
           ) : null}
         </footer>
@@ -272,7 +325,7 @@ export function MembershipAdminPanel(props: MembershipAdminPanelProps) {
             {tenantMembers.length ? (
               <div className="mt-4 grid gap-3 lg:grid-cols-2">
                 {tenantMembers.map((membership) => (
-                  <MembershipCard key={membership.membershipId} membership={membership} actor={props.actor} canChangeRole={rolePermission.allowed} canSuspend={managePermission.allowed} onChangeRole={props.onChangeRole} onSuspend={props.onSuspend} />
+                  <MembershipCard key={membership.membershipId} membership={membership} actor={props.actor} canChangeRole={rolePermission.allowed} canSuspend={managePermission.allowed} onChangeRole={props.onChangeRole} onSuspend={props.onSuspend} onReactivate={props.onReactivate} onRevoke={props.onRevoke} onRemove={props.onRemove} />
                 ))}
               </div>
             ) : <p className="mt-4 text-sm" style={{ color: "var(--text-secondary)" }}>No tenant-wide members.</p>}
@@ -289,7 +342,7 @@ export function MembershipAdminPanel(props: MembershipAdminPanelProps) {
             {workspaceMembers.length ? (
               <div className="mt-4 grid gap-3 lg:grid-cols-2">
                 {workspaceMembers.map((membership) => (
-                  <MembershipCard key={membership.membershipId} membership={membership} actor={props.actor} canChangeRole={rolePermission.allowed} canSuspend={managePermission.allowed} onChangeRole={props.onChangeRole} onSuspend={props.onSuspend} />
+                  <MembershipCard key={membership.membershipId} membership={membership} actor={props.actor} canChangeRole={rolePermission.allowed} canSuspend={managePermission.allowed} onChangeRole={props.onChangeRole} onSuspend={props.onSuspend} onReactivate={props.onReactivate} onRevoke={props.onRevoke} onRemove={props.onRemove} />
                 ))}
               </div>
             ) : <p className="mt-4 text-sm" style={{ color: "var(--text-secondary)" }}>No workspace-scoped members.</p>}
@@ -306,7 +359,7 @@ export function MembershipAdminPanel(props: MembershipAdminPanelProps) {
             {invitations.length ? (
               <div className="mt-4 grid gap-3 lg:grid-cols-2">
                 {invitations.map((membership) => (
-                  <MembershipCard key={membership.membershipId} membership={membership} actor={props.actor} canChangeRole={rolePermission.allowed} canSuspend={managePermission.allowed} onChangeRole={props.onChangeRole} onSuspend={props.onSuspend} />
+                  <MembershipCard key={membership.membershipId} membership={membership} actor={props.actor} canChangeRole={rolePermission.allowed} canSuspend={managePermission.allowed} onChangeRole={props.onChangeRole} onSuspend={props.onSuspend} onReactivate={props.onReactivate} onRevoke={props.onRevoke} onRemove={props.onRemove} />
                 ))}
               </div>
             ) : <p className="mt-4 text-sm" style={{ color: "var(--text-secondary)" }}>No pending invitations.</p>}

@@ -23,4 +23,5 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: "/statistics", label: "Statistics", description: "Pipeline conversion, quality, and cost reporting." },
   { href: "/settings", label: "Settings", description: "API keys, scoring, and model settings." },
   { href: "/users", label: "Users", description: "Team roles, status, and team lead assignment." },
+  { href: "/tenancy", label: "Tenancy", description: "Tenant lifecycle state and time-bound support access." },
 ];

@@ -64,6 +64,7 @@ const allAuthorized = {
   request_pause: true,
   request_resume: true,
   request_suspend: true,
+  request_archive: true,
 } as const;
 
 describe("TenantLifecyclePanel", () => {
@@ -91,14 +92,16 @@ describe("TenantLifecyclePanel", () => {
       onRequestPause: vi.fn(),
       onRequestResume: vi.fn(),
       onRequestSuspend: vi.fn(),
+      onRequestArchive: vi.fn(),
     };
     const active = renderToStaticMarkup(
       <TenantLifecyclePanel state="ready" snapshot={snapshot()} authorizations={allAuthorized} {...callbacks} />,
     );
     expect(active).toContain("Request workspace pause");
     expect(active).toContain("Request tenant suspension");
+    expect(active).toContain("Request tenant archive");
     expect(active).not.toContain("Request workspace resume");
-    expect(active.match(/<button\b/g)).toHaveLength(2);
+    expect(active.match(/<button\b/g)).toHaveLength(3);
     expect(active).toMatch(/<button[^>]*type="button"[^>]*min-h-11/u);
 
     const pausedWorkspace = snapshot({
@@ -110,6 +113,7 @@ describe("TenantLifecyclePanel", () => {
     );
     expect(paused).toContain("Request workspace resume");
     expect(paused).toContain("Request tenant suspension");
+    expect(paused).toContain("Request tenant archive");
     expect(paused).not.toContain("Request workspace pause");
 
     const suspendedTenant = snapshot({
@@ -121,8 +125,21 @@ describe("TenantLifecyclePanel", () => {
       <TenantLifecyclePanel state="ready" snapshot={suspendedTenant} authorizations={allAuthorized} {...callbacks} />,
     );
     expect(suspended).toContain("Request tenant resume");
+    expect(suspended).toContain("Request tenant archive");
     expect(suspended).not.toContain("Request tenant suspension");
     expect(suspended).not.toContain("Request workspace pause");
+
+    const archivedTenant = snapshot({
+      tenant: { ...snapshot().tenant, status: "archived" },
+      workspace: null,
+      audit: recordedAudit({ workspaceId: null, fromStatus: "suspended", toStatus: "archived" }),
+    });
+    const archived = renderToStaticMarkup(
+      <TenantLifecyclePanel state="ready" snapshot={archivedTenant} authorizations={allAuthorized} {...callbacks} />,
+    );
+    expect(archived).not.toContain("Request tenant archive");
+    expect(archived).not.toContain("Request tenant suspension");
+    expect(archived).not.toMatch(/<button\b/u);
 
     const missingAuthorization = renderToStaticMarkup(
       <TenantLifecyclePanel state="ready" snapshot={snapshot()} authorizations={{ read: true }} {...callbacks} />,

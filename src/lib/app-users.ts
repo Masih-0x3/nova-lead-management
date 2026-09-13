@@ -83,6 +83,27 @@ export class TenantScopeResolutionError extends Error {
   }
 }
 
+/**
+ * Scope resolution retains non-terminal scope per the tenant/workspace
+ * contract: suspended/archived/deletion_pending scope still resolves so
+ * authorized read, export, retention, and deletion operations stay reachable.
+ * Non-active tenant scope is restricted to the elevated roles those states
+ * authorize (owner/admin); terminal states resolve nothing.
+ */
+const RESOLVABLE_TENANT_STATUSES: ReadonlySet<string> = new Set([
+  "active",
+  "suspended",
+  "archived",
+  "deletion_pending",
+]);
+const NON_ACTIVE_TENANT_SCOPE_ROLES: ReadonlySet<string> = new Set(["owner", "admin"]);
+const RESOLVABLE_WORKSPACE_STATUSES: ReadonlySet<string> = new Set([
+  "active",
+  "paused",
+  "archived",
+  "deletion_pending",
+]);
+
 export function createTenantSessionResolver(
   db?: DbClient,
   options: TenantSessionResolverOptions = {},
@@ -192,7 +213,8 @@ async function resolveTenantSessionScopeAt(
   const parsedRows = rows.map(parseJoinedTenantSessionRow);
   const tenant = parsedRows[0].tenant;
   const tenantId = tenant.id;
-  if ((tenantSelector.provided && tenantId !== tenantSelector.value) || tenant.status !== "active") {
+  if ((tenantSelector.provided && tenantId !== tenantSelector.value)
+    || !RESOLVABLE_TENANT_STATUSES.has(tenant.status)) {
     throw new TenantScopeResolutionError();
   }
   for (const row of parsedRows) {
@@ -223,6 +245,9 @@ async function resolveTenantSessionScopeAt(
   if (currentBindings.length !== 1) throw new TenantScopeResolutionError();
   const roleBinding = currentBindings[0];
   if (roleBinding.tenantId !== tenantId || roleBinding.membershipId !== membership.id) {
+    throw new TenantScopeResolutionError();
+  }
+  if (tenant.status !== "active" && !NON_ACTIVE_TENANT_SCOPE_ROLES.has(roleBinding.role)) {
     throw new TenantScopeResolutionError();
   }
 
@@ -531,7 +556,8 @@ function resolveEffectiveWorkspaceId(
   );
   if (matchingWorkspaces.length !== 1) throw new TenantScopeResolutionError();
   const workspace = matchingWorkspaces[0];
-  if (workspace.id !== effectiveWorkspaceId || workspace.tenantId !== tenantId || workspace.status !== "active") {
+  if (workspace.id !== effectiveWorkspaceId || workspace.tenantId !== tenantId
+    || !RESOLVABLE_WORKSPACE_STATUSES.has(workspace.status)) {
     throw new TenantScopeResolutionError();
   }
   return workspace.id;
@@ -594,6 +620,20 @@ function uniqueById<T extends { id: string }>(rows: readonly T[]): T[] {
 
 export async function ensureAppUserForAuthUser(userId: string, email: string): Promise<AppUserSessionProfile> {
   const normalizedEmail = normalizeEmail(email);
+  if (process.env.DATABASE_URL?.trim()) {
+    // app_users is deny-all for the runtime role: the whole ensure contract
+    // (read+touch, bootstrap-first-admin insert, pending phantom) runs inside
+    // the SECURITY DEFINER so the session path stays atomic under Postgres.
+    const db = await getDb();
+    const row = await db
+      .prepare("SELECT public.novatrade_app_user_session_profile(?::uuid, ?, ?) AS profile")
+      .get<{ profile: unknown }>(
+        userId,
+        normalizedEmail,
+        normalizeEmail(process.env.NOSITE_BOOTSTRAP_ADMIN_EMAIL),
+      );
+    return parseSessionProfile(row?.profile);
+  }
   const existing = await getAppUserByUserId(userId);
   if (existing) {
     await updateLastSeen(userId);
@@ -781,6 +821,42 @@ function toSessionProfile(user: AppUser): AppUserSessionProfile {
     role: user.role,
     status: user.status,
   };
+}
+
+/**
+ * Fail-closed parse of the definer's session-profile payload: a malformed
+ * shape must never produce a session.
+ */
+function parseSessionProfile(value: unknown): AppUserSessionProfile {
+  const record = typeof value === "string" ? safeJsonParse(value) : value;
+  if (record === null || typeof record !== "object" || Array.isArray(record)) {
+    throw new Error("Malformed app user session profile");
+  }
+  const row = record as Record<string, unknown>;
+  const status = row.status === "active" || row.status === "disabled" || row.status === "pending"
+    ? row.status
+    : null;
+  const role = row.role === null || row.role === undefined ? null : isAppRole(row.role) ? row.role : null;
+  if (typeof row.userId !== "string" || typeof row.email !== "string" || status === null
+    || (row.role !== null && row.role !== undefined && role === null)
+    || (status !== "pending" && role === null)) {
+    throw new Error("Malformed app user session profile");
+  }
+  return {
+    userId: row.userId,
+    email: row.email,
+    displayName: typeof row.displayName === "string" ? row.displayName : null,
+    role,
+    status,
+  };
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 function normalizeEmail(email: string | undefined | null): string {

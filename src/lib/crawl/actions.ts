@@ -1621,10 +1621,14 @@ export async function getFailedUnitErrorsAction(
   });
 }
 
-export async function getCrawlProgressAction() {
-  await requirePermission("crawl:manage");
-  await ensureDbReady();
-  const run = await getSelectedOrDefaultVisibleCrawlRun();
-  if (!run) return null;
-  return { runId: run.id, status: run.status, ...(await getCrawlProgress(run.id)) };
+export async function getCrawlProgressAction(selector: TenantSessionSelector = {}) {
+  return withCrawlPermission(selector, "source:review", "crawl.progress.read", async (session) => {
+    await ensureDbReady();
+    const run = await getSelectedOrDefaultVisibleCrawlRun(undefined, {
+      tenantId: session.tenantId,
+      workspaceId: session.workspaceId,
+    });
+    if (!run) return null;
+    return { runId: run.id, status: run.status, ...(await getCrawlProgress(run.id)) };
+  });
 }

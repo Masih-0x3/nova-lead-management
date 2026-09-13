@@ -93,6 +93,7 @@ import {
   getCoverageDiscoveryItemsAction,
   getCoverageProbeCandidatesAction,
   getCoverageSelectedRunAction,
+  getCrawlProgressAction,
   getFailedUnitErrorsAction,
   getDashboardAnalyticsAction,
   getDashboardSummaryPanelsAction,
@@ -1233,5 +1234,51 @@ describe("crawl discovery item actions", () => {
       status: 200,
     }));
     infoSpy.mockRestore();
+  });
+});
+
+describe("crawl progress action tenant scope", () => {
+  const FOREIGN_TENANT = "99999999-0000-4000-8000-000000000099";
+
+  function seedForeignRun(id: string, status: string, createdAt: string): void {
+    testDb.prepare("INSERT INTO tenants (id, slug, name, status) VALUES (?, ?, 'Foreign', 'active')")
+      .run(FOREIGN_TENANT, `foreign-${id}`);
+    testDb.prepare("INSERT INTO crawl_runs (id, status, categories, tenant_id, created_at) VALUES (?, ?, '[]', ?, ?)")
+      .run(id, status, FOREIGN_TENANT, createdAt);
+  }
+
+  it("returns null when only foreign-tenant runs exist", async () => {
+    seedForeignRun("run-foreign", "running", "2026-09-10 00:00:00");
+
+    await expect(getCrawlProgressAction({ tenantId: TENANT_ID, workspaceId: null })).resolves.toBeNull();
+
+    expect(tenantAuthorizationMocks.requireTenantPermission).toHaveBeenCalledWith(
+      { tenantId: TENANT_ID, workspaceId: null },
+      "source:review",
+      { action: "crawl.progress.read" },
+    );
+    expect(authMocks.requirePermission).toHaveBeenCalledWith("crawl:manage");
+  });
+
+  it("returns the session tenant's run when a newer foreign run exists", async () => {
+    seedForeignRun("run-foreign", "running", "2026-09-12 00:00:00");
+    const ownRunId = seedTestRun(testDb, { id: "run-own", status: "done" });
+    testDb.prepare("UPDATE crawl_runs SET created_at = ? WHERE id = ?").run("2026-09-11 00:00:00", ownRunId);
+
+    const result = await getCrawlProgressAction({ tenantId: TENANT_ID, workspaceId: null });
+
+    expect(result).toMatchObject({ runId: ownRunId, status: "done" });
+  });
+
+  it("fails closed before database access when tenant scope cannot be resolved", async () => {
+    seedForeignRun("run-foreign", "running", "2026-09-10 00:00:00");
+    tenantAuthorizationMocks.requireTenantPermission.mockRejectedValueOnce(
+      new TenantAuthorizationError(403, "TENANT_SCOPE_REQUIRED"),
+    );
+
+    await expect(getCrawlProgressAction({ tenantId: TENANT_ID, workspaceId: null }))
+      .rejects.toMatchObject({ code: "TENANT_SCOPE_REQUIRED" });
+    expect(tenantAuthorizationMocks.runWithTenantContext).not.toHaveBeenCalled();
+    expect(dbIndexMocks.withTenantDbContext).not.toHaveBeenCalled();
   });
 });

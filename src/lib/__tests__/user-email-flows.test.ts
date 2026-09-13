@@ -37,11 +37,18 @@ describe("user email flows", () => {
   it("does not delete platform-global identities from a tenant-scoped removal action", () => {
     const body = functionBody("removeUserAction", "updateUserTeamAction");
 
-    expect(body).toContain('requireTenantPermission(selector, "membership:manage"');
-    expect(body).toContain("assertTenantResourceOwnership");
+    expect(body).toContain('authorizedTenantSession(actor.userId, selector, "membership:manage", "users.remove")');
+    expect(body).toContain("resolveCanonicalMembershipTarget");
+    expect(body).toContain("removeMember");
     expect(body).toContain("unavailableUserResult");
     expect(body).not.toContain("deleteUser(userId)");
     expect(body).not.toContain("removeAppUser(userId)");
+    expect(body).not.toContain("updateAppUserStatus");
     expect(body).not.toContain("app_user_removed");
+
+    // The delegated helpers still bind the actor session to membership:manage
+    // and assert tenant resource ownership before any mutation runs.
+    expect(source).toContain("requireTenantPermission(selector, permission,");
+    expect(source).toContain("assertTenantResourceOwnership");
   });
 });

@@ -3057,12 +3057,22 @@ export async function ensureGeographyBackfill(): Promise<void> {
          selection_json = COALESCE(selection_json, ?)
      WHERE market_id IS NULL`
   ).run(COLORADO_MARKET_ID, JSON.stringify({ countryCode: "US", marketId: COLORADO_MARKET_ID, source: "legacy_colorado" }));
+  // user_market_access is tenant-scoped on Postgres: the scope trigger requires
+  // tenant_id plus an active tenant-wide membership for the grantee. The legacy
+  // app_users grant is therefore derived per active tenant membership there;
+  // the local compat schema keeps the pre-tenant unscoped table.
   await db.prepare(
-    `INSERT INTO user_market_access (user_id, market_id, created_by_user_id)
-     SELECT user_id, ?, NULL
-     FROM app_users
-     WHERE role = 'researcher' AND status = 'active'
-     ON CONFLICT(user_id, market_id) DO NOTHING`
+    process.env.DATABASE_URL?.trim()
+      ? `INSERT INTO user_market_access (tenant_id, workspace_id, user_id, market_id, created_by_user_id)
+         SELECT m.tenant_id, NULL, m.auth_identity_id::text, ?, NULL
+         FROM tenant_memberships m
+         WHERE m.status = 'active' AND m.workspace_id IS NULL
+         ON CONFLICT ON CONSTRAINT user_market_access_tenant_workspace_user_market_unique DO NOTHING`
+      : `INSERT INTO user_market_access (user_id, market_id, created_by_user_id)
+         SELECT user_id, ?, NULL
+         FROM app_users
+         WHERE role = 'researcher' AND status = 'active'
+         ON CONFLICT(user_id, market_id) DO NOTHING`
   ).run(COLORADO_MARKET_ID);
 }
 
@@ -3163,6 +3173,13 @@ export async function getCellCoverageStatus(cellId: string, categories?: readonl
 }
 
 export async function replaceUserMarketAccess(userId: string, marketIds: string[], actorUserId?: string | null): Promise<UserMarketAccess[]> {
+  // Retired path: on PostgreSQL, user_market_access rows are tenant-scoped and
+  // an unscoped DELETE/INSERT would either fail the scope trigger or destroy
+  // grants in other tenants. The tenant-facing callers are closed; this writer
+  // remains only for the unscoped local compatibility schema.
+  if (process.env.DATABASE_URL?.trim()) {
+    throw new Error("replaceUserMarketAccess is unavailable on PostgreSQL: market grants are tenant-scoped");
+  }
   const db = await getDb();
   const uniqueMarketIds = Array.from(new Set(marketIds.map((id) => id.trim()).filter(Boolean)));
 

@@ -25,6 +25,9 @@
     "db:import:supabase": "node scripts/import-supabase-data.mjs",
     "db:verify:recovery": "node scripts/verify-data-recovery.mjs",
     "local:seed": "node scripts/seed-local-tenant.mjs",
+    "local:seed:sqlite": "node scripts/seed-local-tenant-sqlite.mjs",
+    "local:tenancy:operator": "node scripts/local-tenant-operator.mjs",
+    "local:tenancy:compat": "node scripts/local-tenant-compat.mjs",
     "local:dispatch": "node scripts/run-local-workers.mjs"
   },
   "dependencies": {
