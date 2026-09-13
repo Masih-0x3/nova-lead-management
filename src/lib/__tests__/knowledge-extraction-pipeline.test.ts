@@ -168,7 +168,7 @@ describe("launch knowledge extraction pipeline", () => {
       reason: "state_not_clean",
     });
 
-    await expect(runKnowledgeExtractionPipeline(input("%PDF fixture", "pdf"))).resolves.toEqual({
+    await expect(runKnowledgeExtractionPipeline(input("jpeg fixture", "jpeg"))).resolves.toEqual({
       ok: false,
       stage: "input",
       code: "UNSUPPORTED_LAUNCH_FORMAT",

@@ -23,6 +23,8 @@ import {
   runKnowledgeExtractionPipeline,
   type KnowledgeExtractionArtifact,
 } from "@/lib/knowledge/extraction-pipeline";
+import { countWorkbookRows } from "@/lib/knowledge/parsers/ooxml";
+import { countPdfPages } from "@/lib/knowledge/parsers/pdf";
 
 import { DocumentIntakeError } from "./errors";
 import type { UploadedDocumentReader } from "./intake-service";
@@ -67,15 +69,30 @@ const LAUNCH_EXTRACTION_PARSERS = Object.freeze({
     parserVersion: "1.0.0",
     mediaType: "text/csv",
   }),
+  docx: Object.freeze({
+    parserId: "launch-docx-blocks",
+    parserVersion: "1.0.0",
+    mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  }),
   markdown: Object.freeze({
     parserId: "launch-markdown-lines",
     parserVersion: "1.0.0",
     mediaType: "text/markdown",
   }),
+  pdf: Object.freeze({
+    parserId: "launch-pdf-text-layer",
+    parserVersion: "1.0.0",
+    mediaType: "application/pdf",
+  }),
   txt: Object.freeze({
     parserId: "launch-text-lines",
     parserVersion: "1.0.0",
     mediaType: "text/plain",
+  }),
+  xlsx: Object.freeze({
+    parserId: "launch-xlsx-rows",
+    parserVersion: "1.0.0",
+    mediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   }),
 } as const);
 type LaunchExtractionFormat = keyof typeof LAUNCH_EXTRACTION_PARSERS;
@@ -947,6 +964,8 @@ export async function executeDocumentExtraction(
         policyVersion: lease.scannerPolicyVersion,
         validated: true,
         ...(format === "csv" ? { rowCount: countDelimitedRows(bytes) } : {}),
+        ...(format === "xlsx" ? { rowCount: countWorkbookRows(bytes) } : {}),
+        ...(format === "pdf" ? { pageCount: countPdfPages(bytes) } : {}),
       },
     },
     mediaType: parser.mediaType,

@@ -105,7 +105,7 @@ describe("createLocalDocumentScanner", () => {
       reasonCode: "integrity_mismatch",
       retryable: false,
     });
-    expect(observation.scannedChecksum).not.toBe(claimed);
+    expect((observation as { scannedChecksum: string }).scannedChecksum).not.toBe(claimed);
   });
 
   it("rejects a malformed scan request before reading storage", async () => {

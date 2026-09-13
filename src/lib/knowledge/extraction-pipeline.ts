@@ -17,8 +17,11 @@ import {
 import {
   createDocumentParserRegistry,
   CSV_DOCUMENT_PARSER,
+  DOCX_DOCUMENT_PARSER,
   MARKDOWN_DOCUMENT_PARSER,
+  PDF_DOCUMENT_PARSER,
   TEXT_DOCUMENT_PARSER,
+  XLSX_DOCUMENT_PARSER,
   type NormalizedDocumentBlock,
   type ParserFailureCode,
   type ParserLocator,
@@ -32,8 +35,11 @@ const POLICY_VERSION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/u;
 const LAUNCH_MEDIA_TYPES = Object.freeze({
   csv: "text/csv",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   markdown: "text/markdown",
+  pdf: "application/pdf",
   txt: "text/plain",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 } as const);
 const LAUNCH_FORMATS = new Set<string>(Object.keys(LAUNCH_MEDIA_TYPES));
 const ALL_FORMATS = new Set<string>(["pdf", "docx", "xlsx", "csv", "txt", "markdown", "jpeg", "png"]);
@@ -58,8 +64,11 @@ const INVALID_SIGNAL = Symbol("invalid signal");
 
 const LAUNCH_PARSER_REGISTRY = createDocumentParserRegistry(Object.freeze([
   CSV_DOCUMENT_PARSER,
+  DOCX_DOCUMENT_PARSER,
   MARKDOWN_DOCUMENT_PARSER,
+  PDF_DOCUMENT_PARSER,
   TEXT_DOCUMENT_PARSER,
+  XLSX_DOCUMENT_PARSER,
 ]));
 
 type PlainRecord = Record<string, unknown>;
@@ -83,6 +92,8 @@ export type KnowledgeExtractionPipelineInput = Readonly<{
 export type RenderSafeSourceLocator = Readonly<
   | { kind: "line_range"; label: string; startLine: number; endLine: number }
   | { kind: "row"; label: string; row: number }
+  | { kind: "page"; label: string; page: number; block: number }
+  | { kind: "section"; label: string; sectionPath: readonly string[]; block: number }
 >;
 
 export type KnowledgeExtractionBlock = Readonly<{
@@ -384,6 +395,22 @@ function renderSafeLocator(locator: ParserLocator): RenderSafeSourceLocator | nu
   }
   if (locator.kind === "row") {
     return Object.freeze({ kind: "row", label: `Row ${locator.row}`, row: locator.row });
+  }
+  if (locator.kind === "page") {
+    return Object.freeze({
+      kind: "page",
+      label: `Page ${locator.page}`,
+      page: locator.page,
+      block: locator.block,
+    });
+  }
+  if (locator.kind === "section") {
+    return Object.freeze({
+      kind: "section",
+      label: `Section ${locator.sectionPath.join(" / ")}`,
+      sectionPath: locator.sectionPath,
+      block: locator.block,
+    });
   }
   return null;
 }

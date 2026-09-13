@@ -43,7 +43,7 @@ describe("worker discovery sweeps", () => {
         return [{ jobId: JOB_ID, tenantId: TENANT_ID, workspaceId: WORKSPACE_ID }];
       },
     };
-    const losses = await discoverDocumentScanLeaseLosses({ limit: 5 }, { repository });
+    const losses = await discoverDocumentScanLeaseLosses({ limit: 5 }, { repository: repository as DocumentPipelineRepository });
     expect(losses).toEqual([{ jobId: JOB_ID, tenantId: TENANT_ID, workspaceId: WORKSPACE_ID }]);
   });
 
@@ -57,7 +57,7 @@ describe("worker discovery sweeps", () => {
       try {
         await discoverDocumentScanLeaseLosses(
           { limit: limit as number },
-          { repository },
+          { repository: repository as DocumentPipelineRepository },
         );
         expect.unreachable();
       } catch (error) {
@@ -73,7 +73,7 @@ describe("worker discovery sweeps", () => {
       ],
     };
     try {
-      await discoverDocumentExtractionLeaseLosses({ limit: 10 }, { repository });
+      await discoverDocumentExtractionLeaseLosses({ limit: 10 }, { repository: repository as DocumentPipelineRepository });
       expect.unreachable();
     } catch (error) {
       persistenceBoundary(error);
@@ -91,7 +91,7 @@ describe("worker discovery sweeps", () => {
       }],
     };
     try {
-      await discoverDocumentRetentionSubjects({ limit: 10 }, { repository });
+      await discoverDocumentRetentionSubjects({ limit: 10 }, { repository: repository as DocumentPipelineRepository });
       expect.unreachable();
     } catch (error) {
       persistenceBoundary(error);
@@ -104,7 +104,7 @@ describe("worker discovery sweeps", () => {
         { requestId: REQUEST_ID, tenantId: TENANT_ID, workspaceId: WORKSPACE_ID },
       ],
     };
-    const refs = await discoverDocumentDeletionRequests({ limit: 10 }, { repository });
+    const refs = await discoverDocumentDeletionRequests({ limit: 10 }, { repository: repository as DocumentPipelineRepository });
     expect(refs).toEqual([
       { requestId: REQUEST_ID, tenantId: TENANT_ID, workspaceId: WORKSPACE_ID },
     ]);
@@ -120,7 +120,7 @@ describe("lease recovery", () => {
         return { kind: "requeued", jobId, state: "queued" };
       },
     };
-    const result = await recoverDocumentScanLease({ jobId: JOB_ID }, { repository });
+    const result = await recoverDocumentScanLease({ jobId: JOB_ID }, { repository: repository as DocumentPipelineRepository });
     expect(result).toEqual({ kind: "requeued", jobId: JOB_ID, state: "queued" });
     expect(seen).toEqual([JOB_ID]);
   });
@@ -129,7 +129,7 @@ describe("lease recovery", () => {
     const repository: Repo = {
       recoverExtractionLease: async () => ({ kind: "unavailable" }),
     };
-    const result = await recoverDocumentExtractionLease({ jobId: JOB_ID }, { repository });
+    const result = await recoverDocumentExtractionLease({ jobId: JOB_ID }, { repository: repository as DocumentPipelineRepository });
     expect(result).toEqual({ kind: "unavailable" });
   });
 
@@ -142,7 +142,7 @@ describe("lease recovery", () => {
       }),
     };
     try {
-      await recoverDocumentScanLease({ jobId: JOB_ID }, { repository });
+      await recoverDocumentScanLease({ jobId: JOB_ID }, { repository: repository as DocumentPipelineRepository });
       expect.unreachable();
     } catch (error) {
       persistenceBoundary(error);
@@ -154,7 +154,7 @@ describe("evaluateDocumentRetention", () => {
   const subject = {
     documentId: DOCUMENT_ID,
     versionId: VERSION_ID,
-    versionState: "ready",
+    versionState: "ready" as const,
     objectKey: OBJECT_KEY,
     checksum: CHECKSUM,
     isCurrentVersion: false,
@@ -186,7 +186,7 @@ describe("evaluateDocumentRetention", () => {
     };
     const result = await evaluateDocumentRetention(
       { tenantId: TENANT_ID, workspaceId: WORKSPACE_ID, documentId: DOCUMENT_ID, versionId: VERSION_ID },
-      { repository, evaluatedAt: "2026-08-30T00:00:00.000Z" },
+      { repository: repository as DocumentPipelineRepository, evaluatedAt: "2026-08-30T00:00:00.000Z" },
     );
     expect(result).toEqual({
       kind: "recorded_purge",
@@ -210,7 +210,7 @@ describe("evaluateDocumentRetention", () => {
     };
     const result = await evaluateDocumentRetention(
       { tenantId: TENANT_ID, workspaceId: WORKSPACE_ID, documentId: DOCUMENT_ID, versionId: VERSION_ID },
-      { repository, evaluatedAt: "2026-08-30T00:00:00.000Z" },
+      { repository: repository as DocumentPipelineRepository, evaluatedAt: "2026-08-30T00:00:00.000Z" },
     );
     expect(result).toMatchObject({
       kind: "deferred",
@@ -234,7 +234,7 @@ describe("evaluateDocumentRetention", () => {
     try {
       await evaluateDocumentRetention(
         { tenantId: TENANT_ID, workspaceId: WORKSPACE_ID, documentId: DOCUMENT_ID, versionId: VERSION_ID },
-        { repository },
+        { repository: repository as DocumentPipelineRepository },
       );
       expect.unreachable();
     } catch (error) {
@@ -248,8 +248,8 @@ describe("applyDocumentDeletion", () => {
     requestId: REQUEST_ID,
     documentId: DOCUMENT_ID,
     versionId: VERSION_ID,
-    state: "pending",
-    versionState: "deletion_pending",
+    state: "pending" as const,
+    versionState: "deletion_pending" as const,
     objectKey: OBJECT_KEY,
   };
 
@@ -269,7 +269,7 @@ describe("applyDocumentDeletion", () => {
         return { objectKey: request.objectKey, removed: true };
       },
     };
-    const result = await applyDocumentDeletion({ requestId: REQUEST_ID }, { repository, remover });
+    const result = await applyDocumentDeletion({ requestId: REQUEST_ID }, { repository: repository as DocumentPipelineRepository, remover });
     expect(result).toEqual({ kind: "applied", requestId: REQUEST_ID, versionState: "deleted" });
     expect(order).toEqual(["delete", "apply"]);
   });
@@ -289,7 +289,7 @@ describe("applyDocumentDeletion", () => {
         throw new Error("storage must not be touched for terminal requests");
       },
     };
-    const result = await applyDocumentDeletion({ requestId: REQUEST_ID }, { repository, remover });
+    const result = await applyDocumentDeletion({ requestId: REQUEST_ID }, { repository: repository as DocumentPipelineRepository, remover });
     expect(result).toEqual({ kind: "replay", requestId: REQUEST_ID, versionState: "deleted" });
   });
 
@@ -307,7 +307,7 @@ describe("applyDocumentDeletion", () => {
       deleteObject: async () => ({ objectKey: "x", removed: true }),
     };
     try {
-      await applyDocumentDeletion({ requestId: REQUEST_ID }, { repository, remover });
+      await applyDocumentDeletion({ requestId: REQUEST_ID }, { repository: repository as DocumentPipelineRepository, remover });
       expect.unreachable();
     } catch (error) {
       persistenceBoundary(error);
@@ -325,7 +325,7 @@ describe("applyDocumentDeletion", () => {
       deleteObject: async () => ({ objectKey: "tenants/evil", removed: true }),
     };
     try {
-      await applyDocumentDeletion({ requestId: REQUEST_ID }, { repository, remover });
+      await applyDocumentDeletion({ requestId: REQUEST_ID }, { repository: repository as DocumentPipelineRepository, remover });
       expect.unreachable();
     } catch (error) {
       persistenceBoundary(error);
@@ -350,7 +350,7 @@ describe("submitDocumentDeletionRequest", () => {
         return { kind: "requested", requestId: REQUEST_ID, state: "deletion_pending" };
       },
     };
-    const result = await submitDocumentDeletionRequest(input, { repository });
+    const result = await submitDocumentDeletionRequest(input, { repository: repository as DocumentPipelineRepository });
     expect(result).toEqual({
       kind: "requested", requestId: REQUEST_ID, state: "deletion_pending",
     });
@@ -361,7 +361,7 @@ describe("submitDocumentDeletionRequest", () => {
       requestDeletion: async () => ({ kind: "denied", requestId: null, state: "retained_for_incident" }),
     };
     try {
-      await submitDocumentDeletionRequest(input, { repository });
+      await submitDocumentDeletionRequest(input, { repository: repository as DocumentPipelineRepository });
       expect.unreachable();
     } catch (error) {
       intakeBoundary(error, "incident_hold_active");
@@ -372,7 +372,7 @@ describe("submitDocumentDeletionRequest", () => {
     const repository: Repo = {
       requestDeletion: async () => ({ kind: "replay", requestId: null, state: "ready" }),
     };
-    const result = await submitDocumentDeletionRequest(input, { repository });
+    const result = await submitDocumentDeletionRequest(input, { repository: repository as DocumentPipelineRepository });
     expect(result).toEqual({ kind: "replay", requestId: null, state: "ready" });
   });
 });
@@ -411,7 +411,7 @@ describe("requestDocumentExtraction", () => {
         return { kind: "queued", jobId: JOB_ID, versionId: VERSION_ID, state: "queued" };
       },
     };
-    const result = await requestDocumentExtraction(input, { repository });
+    const result = await requestDocumentExtraction(input, { repository: repository as DocumentPipelineRepository });
     expect(result).toEqual({
       kind: "queued", jobId: JOB_ID, versionId: VERSION_ID, state: "queued",
     });
@@ -426,7 +426,7 @@ describe("requestDocumentExtraction", () => {
     try {
       await requestDocumentExtraction(
         { ...input, mediaType: "application/pdf" },
-        { repository },
+        { repository: repository as DocumentPipelineRepository },
       );
       expect.unreachable();
     } catch (error) {
@@ -439,7 +439,7 @@ describe("requestDocumentExtraction", () => {
       requestExtraction: async () => ({ kind: "conflict" }),
     };
     try {
-      await requestDocumentExtraction(input, { repository });
+      await requestDocumentExtraction(input, { repository: repository as DocumentPipelineRepository });
       expect.unreachable();
     } catch (error) {
       intakeBoundary(error, "idempotency_conflict");
@@ -454,7 +454,7 @@ describe("cancelDocumentExtraction", () => {
     };
     const result = await cancelDocumentExtraction(
       { tenantId: TENANT_ID, workspaceId: WORKSPACE_ID, jobId: JOB_ID },
-      { repository },
+      { repository: repository as DocumentPipelineRepository },
     );
     expect(result).toEqual({ kind: "cancel_requested", jobId: JOB_ID, state: "running" });
   });
@@ -466,7 +466,7 @@ describe("cancelDocumentExtraction", () => {
     try {
       await cancelDocumentExtraction(
         { tenantId: TENANT_ID, workspaceId: WORKSPACE_ID, jobId: JOB_ID },
-        { repository },
+        { repository: repository as DocumentPipelineRepository },
       );
       expect.unreachable();
     } catch (error) {
