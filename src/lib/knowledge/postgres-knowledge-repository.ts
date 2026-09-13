@@ -126,7 +126,7 @@ export function createPostgresKnowledgeQueryRepository(
     ): Promise<Record<string, unknown> | undefined> {
       const rows = await callFunction(db,
         "kind,claim_id,claim_version_id,outcome_claim_version_id,review_state",
-        "novatrade_review_knowledge_claim(?,?,?,?,?,?,?,?::pg_catalog.jsonb)",
+        "novatrade_review_knowledge_claim(?,?,?,?,?,?,?,?::pg_catalog.text::pg_catalog.jsonb)",
         [
           request.tenantId,
           request.workspaceId,

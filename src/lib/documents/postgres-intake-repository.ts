@@ -111,11 +111,14 @@ function isoTimestamp(value: unknown): string {
   return new Date(candidate).toISOString();
 }
 
-function reservationRecord(row: Record<string, unknown>): DocumentUploadReservationRecord {
+function reservationRecord(
+  row: Record<string, unknown>,
+  expectedState: "upload_reserved" | "quarantined" = "upload_reserved",
+): DocumentUploadReservationRecord {
   const format = row.format;
   if (typeof format !== "string" || !FORMATS.has(format)) throw persistenceError();
   const state = row.state;
-  if (state !== "upload_reserved") throw persistenceError();
+  if (state !== expectedState) throw persistenceError();
   return Object.freeze({
     tenantId: uuid(row.tenant_id),
     workspaceId: uuid(row.workspace_id),
@@ -131,7 +134,7 @@ function reservationRecord(row: Record<string, unknown>): DocumentUploadReservat
     maxBytes: positiveInteger(row.max_bytes),
     scannerPolicyVersion: text(row.scanner_policy_version, POLICY_VERSION),
     objectKey: text(row.object_key, /^tenants\/[0-9a-f-]{36}\/documents\/[0-9a-f-]{36}\/versions\/[0-9a-f-]{36}\/original$/u, 256),
-    state,
+    state: state as "upload_reserved",
   });
 }
 
@@ -251,7 +254,7 @@ export function createPostgresDocumentIntakeRepository(
       const kind = row.kind;
       if (kind !== "quarantined" && kind !== "replay" && kind !== "duplicate") throw persistenceError();
       const record = Object.freeze({
-        ...reservationRecord(row),
+        ...reservationRecord(row, "quarantined"),
         state: "quarantined" as const,
         checksum: text(row.checksum, SHA256),
       });

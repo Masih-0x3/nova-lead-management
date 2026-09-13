@@ -586,7 +586,7 @@ BEGIN
      OR NULLIF(pg_catalog.current_setting('app.workspace_id',true),'') IS NULL
      OR pg_catalog.current_setting('app.workspace_id',true) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
      OR NULLIF(pg_catalog.current_setting('app.role',true),'') IS NULL
-     OR pg_catalog.current_setting('app.role',true)<>ANY(p_allowed_roles)
+     OR NOT (pg_catalog.current_setting('app.role',true)=ANY(p_allowed_roles))
      OR NULLIF(pg_catalog.current_setting('app.correlation_id',true),'') IS NULL
      OR pg_catalog.current_setting('app.correlation_id',true) !~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$'
   THEN
@@ -1502,8 +1502,13 @@ ALTER FUNCTION public.novatrade_fail_document_url_intake(
   OWNER TO novatrade_document_pipeline_definer;
 
 GRANT USAGE ON SCHEMA public TO novatrade_document_pipeline_definer;
-GRANT SELECT ON TABLE public.tenants,public.workspaces,public.tenant_memberships,
-  public.tenant_role_bindings,public.documents,public.document_upload_reservations
+GRANT SELECT ON TABLE public.documents,public.document_upload_reservations
+  TO novatrade_document_pipeline_definer;
+-- FOR SHARE inside novatrade_l03_member_lock requires UPDATE on every locked
+-- relation; the lock is what serializes member mutations against concurrent
+-- membership/binding revocation writes.
+GRANT SELECT,UPDATE ON TABLE public.tenants,public.workspaces,public.tenant_memberships,
+  public.tenant_role_bindings
   TO novatrade_document_pipeline_definer;
 GRANT SELECT,INSERT,UPDATE ON TABLE public.document_versions
   TO novatrade_document_pipeline_definer;

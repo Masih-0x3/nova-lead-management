@@ -10,6 +10,11 @@ import {
 
 export const MAX_SIGNED_UPLOAD_SECONDS = 5 * 60;
 
+// Storage adapters compute expiry from their own clock; a few seconds of skew
+// between that clock and this process must not fail an otherwise-exact
+// capability, while still capping the issued TTL at the requested maximum.
+const UPLOAD_CLOCK_SKEW_MS = 5_000;
+
 export type StorageUploadRequest = Readonly<{
   objectKey: string;
   expectedMediaType: string;
@@ -112,7 +117,7 @@ export async function reserveDocumentUpload(
     url.password !== "" ||
     !Number.isFinite(expiresAt) ||
     expiresAt <= issuedAt ||
-    expiresAt > issuedAt + MAX_SIGNED_UPLOAD_SECONDS * 1000
+    expiresAt > issuedAt + MAX_SIGNED_UPLOAD_SECONDS * 1000 + UPLOAD_CLOCK_SKEW_MS
   ) {
     throw storageBoundaryError();
   }
