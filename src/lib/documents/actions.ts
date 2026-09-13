@@ -194,6 +194,12 @@ export async function intakeDocumentFromUrlAction(
         writer: localStore(),
       })),
     );
+    const terminalState = result.kind === "failed" ? result.state
+      : result.kind === "replay" && result.state !== "quarantined" ? result.state
+      : null;
+    if (terminalState === "blocked_security") return failure("URL_UNSAFE");
+    if (terminalState === "rejected") return failure("URL_REJECTED");
+    if (terminalState === "failed") return failure("UNAVAILABLE");
     return Object.freeze({ ok: true as const, ...result });
   } catch (error) {
     return mapFailure(error);

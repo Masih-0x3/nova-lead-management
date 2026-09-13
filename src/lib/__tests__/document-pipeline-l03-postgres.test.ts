@@ -21,6 +21,11 @@ import {
 } from "@/lib/documents/local-storage-adapter";
 import { createPostgresDocumentIntakeRepository } from "@/lib/documents/postgres-intake-repository";
 import { createPostgresDocumentPipelineRepository } from "@/lib/documents/postgres-pipeline-repository";
+import { createPostgresDocumentUrlIntakeRepository } from "@/lib/documents/postgres-url-intake-repository";
+import {
+  intakeDocumentFromUrl,
+  lookupDocumentUrlSource,
+} from "@/lib/documents/url-intake-service";
 import { createPostgresKnowledgeQueryRepository } from "@/lib/knowledge/postgres-knowledge-repository";
 import {
   claimDocumentScanJob,
@@ -73,6 +78,10 @@ const DOCUMENT = "66666666-6666-4666-8666-6666666666a1";
 const VERSION = "77777777-7777-4777-8777-7777777777a1";
 const EXTRACTION_JOB = "88888888-8888-4888-8888-8888888888a1";
 const DELETION_REQUEST = "99999999-9999-4999-8999-9999999999a1";
+const URL_DOCUMENT = "66666666-6666-4666-8666-6666666666b1";
+const URL_VERSION = "77777777-7777-4777-8777-7777777777b1";
+const URL_VERSION_2 = "77777777-7777-4777-8777-7777777777b2";
+const URL_DOCUMENT_3 = "66666666-6666-4666-8666-6666666666b3";
 
 const POLICY_VERSION = "launch-v1";
 const SIGNING_SECRET = "l03-rehearsal-signing-secret-0123456789abcdef";
@@ -555,5 +564,317 @@ describe.skipIf(!RUN)("L-03 document pipeline PostgreSQL rehearsal", () => {
         repository: createPostgresKnowledgeQueryRepository(db),
       }));
     expect(gone).toBeUndefined();
+  });
+
+  it("rehearses SSRF-guarded URL intake with normal and adversarial fixtures", async () => {
+    const lookupFor =
+      (records: Record<string, string>) =>
+      async (hostname: string): Promise<readonly { address: string; family: number }[]> => {
+        const address = records[hostname];
+        return address ? [{ address, family: 4 }] : [];
+      };
+    const csvResponse = () =>
+      new Response(CSV_BYTES.slice(), {
+        status: 200,
+        headers: {
+          "content-type": "text/csv",
+          "content-length": String(CSV_BYTES.byteLength),
+        },
+      });
+    const publicHost = { "docs.rehearsal-cdn.example": "93.184.216.34" };
+
+    // -- Member: fetch a supported document through the SSRF guard (0X3-239) --
+    const url = "https://docs.rehearsal-cdn.example/team/roster.csv";
+    const urlSha = createHash("sha256").update(new URL(url).toString()).digest("hex");
+    const ingested = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl({
+        tenantId: TENANT,
+        workspaceId: WORKSPACE,
+        documentId: URL_DOCUMENT,
+        requestId: randomUUID(),
+        idempotencyKey: "l03-url-1",
+        url,
+        requestedName: "roster.csv",
+        scannerPolicyVersion: POLICY_VERSION,
+      }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor(publicHost),
+        fetchImpl: async () => csvResponse(),
+        createVersionId: () => URL_VERSION,
+      }));
+    expect(ingested.kind).toBe("quarantined");
+    if (ingested.kind !== "quarantined") throw new Error("URL intake did not quarantine");
+    expect(ingested.versionId).toBe(URL_VERSION);
+    expect(ingested.checksum).toBe(CSV_CHECKSUM);
+    expect(ingested.processingVersionId).toBe(URL_VERSION);
+    expect(ingested.scanJobId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(ingested.dispatchKey).toContain(URL_VERSION);
+
+    // The URL source is durably recorded and resolvable under tenant scope.
+    const source = await memberTx(MEMBER_A(), (db) =>
+      lookupDocumentUrlSource({ tenantId: TENANT, workspaceId: WORKSPACE, urlSha256: urlSha }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+      }));
+    expect(source?.documentId).toBe(URL_DOCUMENT);
+    expect(source?.normalizedUrl).toBe(url);
+
+    // -- Worker: the URL-ingested version scans against the stored bytes -----
+    const urlScanClaim = await runDocumentPipelineDb(
+      workerScope("document_scan:process"),
+      (db) => claimDocumentScanJob({ jobId: null }, {
+        repository: createPostgresDocumentIntakeRepository(db),
+      }),
+    );
+    if (urlScanClaim.kind !== "leased") {
+      throw new Error(`URL scan claim failed: ${urlScanClaim.kind}`);
+    }
+    expect(urlScanClaim.lease.versionId).toBe(URL_VERSION);
+    expect(urlScanClaim.lease.objectKey)
+      .toBe(`tenants/${TENANT}/documents/${URL_DOCUMENT}/versions/${URL_VERSION}/original`);
+    expect(urlScanClaim.lease.checksum).toBe(CSV_CHECKSUM);
+
+    const urlScanRequest = await executeDocumentScan(urlScanClaim.lease, {
+      scanner: scanner(),
+    });
+    expect(urlScanRequest.state).toBe("clean");
+    const urlScanPersisted = await runDocumentPipelineDb(
+      workerScope("document_scan:process", {
+        tenantId: TENANT,
+        workspaceId: WORKSPACE,
+        jobId: urlScanClaim.lease.jobId,
+        leaseGeneration: urlScanClaim.lease.leaseGeneration,
+      }),
+      (db) => persistDocumentScanResult(urlScanRequest, {
+        repository: createPostgresDocumentIntakeRepository(db),
+      }),
+    );
+    expect(urlScanPersisted.state).toBe("clean");
+    const stored = await readLocalDocumentObject(rootDir, urlScanClaim.lease.objectKey);
+    expect(stored).toEqual(CSV_BYTES);
+
+    // -- Duplicate: same URL + same bytes dedupes to the canonical version ---
+    const duplicate = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl({
+        tenantId: TENANT,
+        workspaceId: WORKSPACE,
+        documentId: URL_DOCUMENT,
+        requestId: randomUUID(),
+        idempotencyKey: "l03-url-2",
+        url,
+        requestedName: "roster.csv",
+        scannerPolicyVersion: POLICY_VERSION,
+      }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor(publicHost),
+        fetchImpl: async () => csvResponse(),
+        createVersionId: () => URL_VERSION_2,
+      }));
+    expect(duplicate.kind).toBe("duplicate");
+    if (duplicate.kind === "duplicate") {
+      expect(duplicate.versionId).toBe(URL_VERSION_2);
+      expect(duplicate.processingVersionId).toBe(URL_VERSION);
+    }
+
+    // -- Conflict: a different document cannot claim the same URL source ------
+    await expect(memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl({
+        tenantId: TENANT,
+        workspaceId: WORKSPACE,
+        documentId: URL_DOCUMENT_3,
+        requestId: randomUUID(),
+        idempotencyKey: "l03-url-3",
+        url,
+        requestedName: "roster.csv",
+        scannerPolicyVersion: POLICY_VERSION,
+      }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor(publicHost),
+        fetchImpl: async () => csvResponse(),
+      }))).rejects.toMatchObject({ name: "DocumentIntakeError", code: "idempotency_conflict" });
+
+    // -- SSRF: literal private/link-local IP is blocked before any fetch -----
+    const metadataUrl = "http://169.254.169.254/latest/meta-data";
+    const metadataInput = {
+      tenantId: TENANT,
+      workspaceId: WORKSPACE,
+      documentId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: "l03-url-blocked-1",
+      url: metadataUrl,
+      requestedName: "meta.csv",
+      scannerPolicyVersion: POLICY_VERSION,
+    };
+    let metadataFetched = false;
+    const blocked = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl(metadataInput, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        fetchImpl: async () => {
+          metadataFetched = true;
+          return csvResponse();
+        },
+      }));
+    expect(metadataFetched).toBe(false);
+    expect(blocked).toMatchObject({
+      kind: "failed",
+      state: "blocked_security",
+      reasonCode: "unsafe_outbound_url",
+    });
+
+    // The durable request landed in a terminal blocked state; replay is a no-op
+    // and never touches the network again.
+    let replayFetched = false;
+    const blockedReplay = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl(metadataInput, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        fetchImpl: async () => {
+          replayFetched = true;
+          return csvResponse();
+        },
+      }));
+    expect(blockedReplay).toMatchObject({ kind: "replay", state: "blocked_security" });
+    expect(replayFetched).toBe(false);
+
+    // DNS-resolved private address is blocked the same way.
+    const dnsBlocked = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl({
+        ...metadataInput,
+        documentId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: "l03-url-blocked-2",
+        url: "https://attacker-internal.example/x.csv",
+      }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor({ "attacker-internal.example": "10.0.0.9" }),
+        fetchImpl: async () => csvResponse(),
+      }));
+    expect(dnsBlocked).toMatchObject({ kind: "failed", state: "blocked_security" });
+
+    // A redirect target is re-resolved: redirecting to a loopback IP is blocked.
+    const redirectBlocked = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl({
+        ...metadataInput,
+        documentId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: "l03-url-blocked-3",
+        url: "https://docs.rehearsal-cdn.example/redirect",
+      }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor(publicHost),
+        fetchImpl: async () => new Response(null, {
+          status: 302,
+          headers: { location: "http://127.0.0.1:8080/internal" },
+        }),
+      }));
+    expect(redirectBlocked).toMatchObject({ kind: "failed", state: "blocked_security" });
+
+    // More redirects than the policy allows terminate as blocked.
+    const loopBlocked = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl({
+        ...metadataInput,
+        documentId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: "l03-url-blocked-4",
+        url: "https://docs.rehearsal-cdn.example/loop",
+      }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor(publicHost),
+        fetchImpl: async (input) => new Response(null, {
+          status: 302,
+          headers: { location: new URL("/loop", input.toString()).toString() },
+        }),
+      }));
+    expect(loopBlocked).toMatchObject({ kind: "failed", state: "blocked_security" });
+
+    // -- Rejected: unsupported media type lands the request in `rejected` ----
+    const rejectedInput = {
+      ...metadataInput,
+      documentId: randomUUID(),
+      requestId: randomUUID(),
+      idempotencyKey: "l03-url-rejected-1",
+      url: "https://docs.rehearsal-cdn.example/blob.bin",
+    };
+    const mediaRejected = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl(rejectedInput, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor(publicHost),
+        fetchImpl: async () => new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "application/octet-stream" },
+        }),
+      }));
+    expect(mediaRejected).toMatchObject({
+      kind: "failed",
+      state: "rejected",
+      reasonCode: "unsupported_media_type",
+    });
+    const rejectedReplay = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl(rejectedInput, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        fetchImpl: async () => csvResponse(),
+      }));
+    expect(rejectedReplay).toMatchObject({ kind: "replay", state: "rejected" });
+
+    // A non-200 response is rejected rather than stored.
+    const missingRejected = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl({
+        ...rejectedInput,
+        documentId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: "l03-url-rejected-2",
+        url: "https://docs.rehearsal-cdn.example/missing.csv",
+      }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor(publicHost),
+        fetchImpl: async () => new Response("not found", { status: 404 }),
+      }));
+    expect(missingRejected).toMatchObject({
+      kind: "failed",
+      state: "rejected",
+      reasonCode: "fetch_rejected",
+    });
+
+    // A declared length over the document cap is rejected without reading.
+    const oversizedRejected = await memberTx(MEMBER_A(), (db) =>
+      intakeDocumentFromUrl({
+        ...rejectedInput,
+        documentId: randomUUID(),
+        requestId: randomUUID(),
+        idempotencyKey: "l03-url-rejected-3",
+        url: "https://docs.rehearsal-cdn.example/huge.csv",
+      }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+        writer: store(),
+        lookupImpl: lookupFor(publicHost),
+        fetchImpl: async () => new Response(CSV_BYTES.slice(), {
+          status: 200,
+          headers: {
+            "content-type": "text/csv",
+            "content-length": String(52_428_801),
+          },
+        }),
+      }));
+    expect(oversizedRejected).toMatchObject({
+      kind: "failed",
+      state: "rejected",
+      reasonCode: "content_too_large",
+    });
+
+    // -- Isolation: tenant B cannot see tenant A's URL source -----------------
+    const foreignSource = await memberTx(MEMBER_B(), (db) =>
+      lookupDocumentUrlSource({ tenantId: TENANT_B, workspaceId: WORKSPACE_B, urlSha256: urlSha }, {
+        repository: createPostgresDocumentUrlIntakeRepository(db),
+      }));
+    expect(foreignSource).toBeUndefined();
   });
 });

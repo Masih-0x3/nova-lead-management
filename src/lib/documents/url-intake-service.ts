@@ -93,7 +93,11 @@ function canonicalUuid(value: unknown): string {
 
 function freezeResult<T extends object>(value: T): Readonly<T> {
   for (const child of Object.values(value)) {
-    if (child && typeof child === "object" && !Object.isFrozen(child)) freezeResult(child as object);
+    if (!child || typeof child !== "object" || Object.isFrozen(child)) continue;
+    // Typed-array views with elements cannot be frozen; their bytes stay
+    // caller-owned and the writer copies them before storing.
+    if (ArrayBuffer.isView(child)) continue;
+    freezeResult(child as object);
   }
   return Object.freeze(value);
 }
@@ -239,6 +243,13 @@ export type DocumentUrlIntakeResult = Readonly<
       documentId: string;
       state: DocumentUrlIntakeRequestState;
     }
+  | {
+      kind: "failed";
+      requestId: string;
+      documentId: string;
+      state: "blocked_security" | "rejected" | "failed";
+      reasonCode: string;
+    }
 >;
 
 const INTAKE_INPUT_FIELDS = [
@@ -305,14 +316,14 @@ function normalizeIntakeInput(value: unknown): NormalizedUrlIntake {
 }
 
 function parseBeginResult(value: unknown, expected: NormalizedUrlIntake): UrlIntakeBeginPersistenceResult {
-  const row = snapshotRecord(value, ["kind", "request_id", "document_id", "state"]);
+  const row = snapshotRecord(value, ["kind"],
+    ["requestId", "documentId", "state", "existingDocumentId"]);
   if (!row || (row.kind !== "created" && row.kind !== "replay" && row.kind !== "conflict")) {
     throw persistenceError();
   }
   if (row.kind === "conflict") {
-    const existing = row.document_id;
-    if (row.request_id !== null || row.state !== null
-      || (existing !== null && (typeof existing !== "string" || !CANONICAL_UUID.test(existing)))) {
+    const existing = row.existingDocumentId;
+    if (existing !== null && (typeof existing !== "string" || !CANONICAL_UUID.test(existing))) {
       throw persistenceError();
     }
     return Object.freeze({
@@ -320,12 +331,11 @@ function parseBeginResult(value: unknown, expected: NormalizedUrlIntake): UrlInt
       existingDocumentId: typeof existing === "string" ? existing.toLowerCase() : null,
     });
   }
-  if (row.request_id !== expected.input.requestId
-    || row.document_id !== expected.input.documentId) {
+  if (row.requestId !== expected.input.requestId
+    || row.documentId !== expected.input.documentId) {
     throw persistenceError();
   }
   if (row.kind === "created") {
-    if (row.state !== "fetching") throw persistenceError();
     return Object.freeze({
       kind: "created",
       requestId: expected.input.requestId,
@@ -349,38 +359,38 @@ function parseFinalizeResult(
   expected: Readonly<{ versionId: string; checksum: string }>,
 ): UrlIntakeFinalizePersistenceResult {
   const row = snapshotRecord(value, [
-    "kind", "version_id", "state", "checksum", "processing_version_id", "scan_job_id", "dispatch_key",
+    "kind", "versionId", "checksum", "processingVersionId", "scanJobId", "dispatchKey",
   ]);
   if (!row || (row.kind !== "quarantined" && row.kind !== "duplicate")
-    || row.state !== "quarantined" || row.version_id !== expected.versionId
+    || row.versionId !== expected.versionId
     || row.checksum !== expected.checksum
-    || typeof row.processing_version_id !== "string"
-    || !CANONICAL_UUID.test(row.processing_version_id)) {
+    || typeof row.processingVersionId !== "string"
+    || !CANONICAL_UUID.test(row.processingVersionId)) {
     throw persistenceError();
   }
   if (row.kind === "duplicate") {
-    if (row.scan_job_id !== null || row.dispatch_key !== null) throw persistenceError();
+    if (row.scanJobId !== null || row.dispatchKey !== null) throw persistenceError();
     return Object.freeze({
       kind: "duplicate",
       versionId: expected.versionId,
       checksum: expected.checksum,
-      processingVersionId: (row.processing_version_id as string).toLowerCase(),
+      processingVersionId: (row.processingVersionId as string).toLowerCase(),
       scanJobId: null,
       dispatchKey: null,
     });
   }
-  if (typeof row.scan_job_id !== "string" || !CANONICAL_UUID.test(row.scan_job_id)
-    || typeof row.dispatch_key !== "string" || row.dispatch_key.length < 7
-    || row.dispatch_key.length > 255) {
+  if (typeof row.scanJobId !== "string" || !CANONICAL_UUID.test(row.scanJobId)
+    || typeof row.dispatchKey !== "string" || row.dispatchKey.length < 7
+    || row.dispatchKey.length > 255) {
     throw persistenceError();
   }
   return Object.freeze({
     kind: "quarantined",
     versionId: expected.versionId,
     checksum: expected.checksum,
-    processingVersionId: (row.processing_version_id as string).toLowerCase(),
-    scanJobId: row.scan_job_id.toLowerCase(),
-    dispatchKey: row.dispatch_key,
+    processingVersionId: (row.processingVersionId as string).toLowerCase(),
+    scanJobId: row.scanJobId.toLowerCase(),
+    dispatchKey: row.dispatchKey,
   });
 }
 
@@ -451,8 +461,10 @@ export type DocumentUrlIntakeDependencies = Readonly<{
 
 /**
  * Authorized URL intake: records the request, fetches through the SSRF guard,
- * stores the verified bytes, and quarantines the version for scanning. Every
- * failure after the durable begin lands the request in a terminal state.
+ * stores the verified bytes, and quarantines the version for scanning. Domain
+ * failures after the durable begin return a `failed` result whose terminal
+ * state and reason the caller's transaction commits; boundary violations
+ * still throw and roll back.
  */
 export async function intakeDocumentFromUrl(
   rawInput: DocumentUrlIntakeInput,
@@ -460,8 +472,11 @@ export async function intakeDocumentFromUrl(
 ): Promise<DocumentUrlIntakeResult> {
   const normalized = normalizeIntakeInput(rawInput);
   const { input } = normalized;
-  const failRequest = (state: FailDocumentUrlIntake["state"], reasonCode: string) =>
-    markFailed(dependencies.repository, {
+  const failRequest = async (
+    state: FailDocumentUrlIntake["state"],
+    reasonCode: string,
+  ): Promise<DocumentUrlIntakeResult> => {
+    await markFailed(dependencies.repository, {
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
       requestId: input.requestId,
@@ -469,6 +484,14 @@ export async function intakeDocumentFromUrl(
       state,
       reasonCode,
     });
+    return freezeResult({
+      kind: "failed",
+      requestId: input.requestId,
+      documentId: input.documentId,
+      state,
+      reasonCode,
+    });
+  };
 
   let rawBegin: unknown;
   try {
@@ -509,44 +532,37 @@ export async function intakeDocumentFromUrl(
     });
   } catch (error) {
     if (error instanceof UnsafeOutboundUrlError) {
-      await failRequest("blocked_security", "unsafe_outbound_url");
-      throw boundaryError("The document URL could not be fetched safely.");
+      return failRequest("blocked_security", "unsafe_outbound_url");
     }
     if (error instanceof Error && error.name === "AbortError") throw error;
-    await failRequest("failed", "fetch_failed");
-    throw boundaryError("The document URL could not be fetched safely.");
+    return failRequest("failed", "fetch_failed");
   }
 
   const response = fetched.response;
   if (response.status !== 200) {
-    await failRequest("rejected", "fetch_rejected");
-    throw boundaryError("The document URL did not return a readable document.");
+    return failRequest("rejected", "fetch_rejected");
   }
 
   const resolved = mediaTypeFormat(response.headers.get("content-type"));
   if (!resolved) {
-    await failRequest("rejected", "unsupported_media_type");
-    throw boundaryError("The document URL returned an unsupported document type.");
+    return failRequest("rejected", "unsupported_media_type");
   }
   const cap = resolved.format === "jpeg" || resolved.format === "png"
     ? IMAGE_MAX_FETCH_BYTES
     : DOCUMENT_MAX_FETCH_BYTES;
   const declaredLength = Number(response.headers.get("content-length") ?? "");
   if (Number.isSafeInteger(declaredLength) && declaredLength > cap) {
-    await failRequest("rejected", "content_too_large");
-    throw boundaryError("The document URL returned a document that is too large.");
+    return failRequest("rejected", "content_too_large");
   }
 
   let bytes: Uint8Array | null;
   try {
     bytes = await readBoundedBody(response, cap);
   } catch {
-    await failRequest("failed", "fetch_failed");
-    throw boundaryError("The document URL could not be fetched safely.");
+    return failRequest("failed", "fetch_failed");
   }
   if (!bytes || bytes.byteLength === 0) {
-    await failRequest("rejected", bytes === null ? "content_too_large" : "empty_content");
-    throw boundaryError("The document URL did not return a readable document.");
+    return failRequest("rejected", bytes === null ? "content_too_large" : "empty_content");
   }
 
   const checksum = sha256Hex(bytes);
@@ -570,8 +586,7 @@ export async function intakeDocumentFromUrl(
       bytes,
     }));
   } catch {
-    await failRequest("failed", "object_store_failed");
-    throw boundaryError("The fetched document could not be stored safely.");
+    return failRequest("failed", "object_store_failed");
   }
 
   let rawFinalize: unknown;
@@ -592,12 +607,18 @@ export async function intakeDocumentFromUrl(
     }));
   } catch (error) {
     if (error instanceof DocumentIntakeError) throw error;
-    await failRequest("failed", "finalize_rejected");
+    await markFailed(dependencies.repository, {
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      requestId: input.requestId,
+      documentId: input.documentId,
+      state: "failed",
+      reasonCode: "finalize_rejected",
+    });
     throw persistenceError();
   }
   if (rawFinalize === undefined) {
-    await failRequest("failed", "finalize_rejected");
-    throw persistenceError();
+    return failRequest("failed", "finalize_rejected");
   }
   const finalize = parseFinalizeResult(rawFinalize, { versionId, checksum });
   if (finalize.kind === "duplicate") {
