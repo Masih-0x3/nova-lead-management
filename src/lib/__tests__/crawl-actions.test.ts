@@ -483,7 +483,7 @@ describe("dashboard read action tenant boundary", () => {
 
     expect(tenantAuthorizationMocks.requireTenantPermission).toHaveBeenCalledWith(
       { tenantId: TENANT_ID, workspaceId: null },
-      "tenant:read",
+      "source:review",
       { action: "dashboard.summary.read" },
     );
     expect(tenantAuthorizationMocks.runWithTenantContext).toHaveBeenCalledWith(
@@ -540,7 +540,7 @@ describe("crawl discovery item actions", () => {
     expect(result.run).toMatchObject({ id: "coverage-run" });
     expect(tenantAuthorizationMocks.requireTenantPermission).toHaveBeenCalledWith(
       { tenantId: TENANT_ID, workspaceId: null },
-      "tenant:read",
+      "source:review",
       { action: "coverage.selected-run.read" },
     );
     expect(dbIndexMocks.withTenantDbContext).toHaveBeenCalledOnce();
