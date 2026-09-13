@@ -160,6 +160,7 @@ function planRow(plan: DiscoveryPlan): DiscoveryPlanRow {
   // hashed domain payload.
   const { createdAt: _rowCreatedAt, ...payload } =
     plan as DiscoveryPlan & { createdAt?: string };
+  void _rowCreatedAt;
   return Object.freeze({
     planId: plan.planId,
     tenantId: plan.tenantId,

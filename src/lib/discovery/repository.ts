@@ -466,6 +466,7 @@ export function createPostgresDiscoveryRepository(db: DbClient): DiscoveryReposi
       // createdAt is row metadata, not part of the hashed domain payload; the
       // stored doc must contain exactly the plan fields parsePlan re-verifies.
       const { createdAt: _rowCreatedAt, ...payload } = plan;
+      void _rowCreatedAt;
       const inserted = await db.prepare(
         `INSERT INTO public.discovery_plans
           (plan_id, tenant_id, workspace_id, plan_sha256, status, play_stable_key,
