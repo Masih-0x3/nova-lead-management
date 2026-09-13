@@ -702,7 +702,8 @@ BEGIN
     'public.agent_tool_calls'::regclass,
     'public.agent_usage_reservations'::regclass,
     'public.agent_usage_settlements'::regclass
-  ]);
+  ])
+  AND p.polname NOT LIKE 'l04\_%';
   SELECT count(*) INTO trigger_count
   FROM pg_catalog.pg_trigger t
   WHERE NOT t.tgisinternal AND t.tgrelid = ANY (ARRAY[

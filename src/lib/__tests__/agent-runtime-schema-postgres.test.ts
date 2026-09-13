@@ -151,6 +151,7 @@ describe.skipIf(!RUN)("F-06 durable agent-runtime PostgreSQL foundation", () => 
     await admin.unsafe(`GRANT USAGE ON SCHEMA public TO "${runtimeRole}"`);
     await admin.unsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ${TABLES.map((table) => `public.${table}`).join(", ")} TO "${runtimeRole}"`);
     await admin.unsafe(`GRANT USAGE ON SEQUENCE public.agent_run_lease_history_id_seq TO "${runtimeRole}"`);
+    await admin.unsafe(`GRANT EXECUTE ON FUNCTION public.novatrade_rls_member_context(), public.novatrade_validate_tenant_worker_lease() TO "${runtimeRole}"`);
     runtime = postgres(
       `postgres://${runtimeRole}:f06-runtime@127.0.0.1:${port}/${DATABASE}`,
       { max: 1, prepare: false, ssl: false, onnotice: () => undefined },
@@ -172,7 +173,7 @@ describe.skipIf(!RUN)("F-06 durable agent-runtime PostgreSQL foundation", () => 
 
     const catalog = await admin.unsafe<Array<Record<string, unknown>>>(`
       SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
-             (SELECT count(*)::integer FROM pg_catalog.pg_policy p WHERE p.polrelid=c.oid) policy_count,
+             (SELECT count(*)::integer FROM pg_catalog.pg_policy p WHERE p.polrelid=c.oid AND p.polname NOT LIKE 'l04\_%') policy_count,
              pg_catalog.has_table_privilege('anon', c.oid, 'SELECT') anon_select,
              pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT') authenticated_select
       FROM pg_catalog.pg_class c
