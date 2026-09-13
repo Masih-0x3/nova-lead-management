@@ -220,9 +220,7 @@ export interface KnowledgeQueryRepository {
   reviewClaim(request: KnowledgeClaimReviewRequest): Promise<Record<string, unknown> | undefined>;
 }
 
-function scope(value: unknown): TenantKnowledgeScope {
-  const record = snapshotRecord(value, ["tenantId", "workspaceId"]);
-  if (!record) throw boundaryError("The knowledge scope is invalid.");
+function scope(record: PlainRecord): TenantKnowledgeScope {
   return {
     tenantId: canonicalUuid(record.tenantId),
     workspaceId: canonicalUuid(record.workspaceId),
@@ -311,7 +309,9 @@ export async function listKnowledgeDocuments(
     repository: Pick<KnowledgeQueryRepository, "listKnowledgeDocuments">;
   }>,
 ): Promise<readonly KnowledgeDocumentSummary[]> {
-  const input = scope(rawScope);
+  const record = snapshotRecord(rawScope, ["tenantId", "workspaceId"]);
+  if (!record) throw boundaryError("The knowledge scope is invalid.");
+  const input = scope(record);
   let rows: unknown;
   try {
     rows = await dependencies.repository.listKnowledgeDocuments(freezeResult({ ...input }));
@@ -352,9 +352,9 @@ export async function getDocumentKnowledge(
     repository: Pick<KnowledgeQueryRepository, "getDocumentKnowledge">;
   }>,
 ): Promise<DocumentKnowledgeProjection> {
-  const base = scope(rawScope);
   const input = snapshotRecord(rawScope, ["tenantId", "workspaceId", "documentId", "versionId"]);
   if (!input) throw boundaryError("The knowledge scope is invalid.");
+  const base = scope(input);
   const documentId = canonicalUuid(input.documentId);
   const versionId = canonicalUuid(input.versionId);
 
@@ -508,11 +508,11 @@ export async function resolveKnowledgeCitation(
     repository: Pick<KnowledgeQueryRepository, "resolveCitation">;
   }>,
 ): Promise<ResolvedKnowledgeCitation | undefined> {
-  const base = scope(rawScope);
   const input = snapshotRecord(rawScope, ["tenantId", "workspaceId", "citationId"]);
   if (!input || typeof input.citationId !== "string" || !CITATION_ID.test(input.citationId)) {
     throw boundaryError("The citation lookup is invalid.");
   }
+  const base = scope(input);
   const citationId = input.citationId;
 
   let result: unknown;

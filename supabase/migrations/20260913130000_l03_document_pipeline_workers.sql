@@ -14,6 +14,15 @@ SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('novatrade:l03:document-pipeline-workers'));
 
+-- Lease token digests are computed inside SECURITY DEFINER functions whose
+-- search_path is pinned to pg_catalog, so the pgcrypto digest is always
+-- addressed through the dedicated extensions schema (the deployed convention).
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+GRANT USAGE ON SCHEMA extensions TO novatrade_document_pipeline_definer;
+GRANT EXECUTE ON FUNCTION extensions.digest(pg_catalog.text,pg_catalog.text)
+  TO novatrade_document_pipeline_definer;
+
 -- ---------------------------------------------------------------------------
 -- Discovery-scoped worker predicate: authenticates the document pipeline
 -- worker without requiring tenant/workspace/job binding. Used only by the
@@ -53,25 +62,29 @@ BEGIN
   END IF;
 
   -- Discovery may carry an optional tenant/workspace selector; when present it
-  -- must be well-formed and refer to active tenant/workspace rows.
-  IF coalesce(pg_catalog.current_setting('app.tenant_id',true),'')<>''
-     AND (
-       pg_catalog.current_setting('app.tenant_id',true) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-       OR pg_catalog.current_setting('app.workspace_id',true) IS NULL
+  -- must be well-formed and refer to active tenant/workspace rows. The casts
+  -- live in a nested IF because AND does not short-circuit: a session-local
+  -- '' placeholder (left by any prior tx-local set on a pooled connection)
+  -- must not reach ::uuid.
+  IF coalesce(pg_catalog.current_setting('app.tenant_id',true),'')<>'' THEN
+    IF pg_catalog.current_setting('app.tenant_id',true) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+       OR coalesce(pg_catalog.current_setting('app.workspace_id',true),'')=''
        OR pg_catalog.current_setting('app.workspace_id',true) !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
-       OR NOT EXISTS (
-         SELECT 1
-         FROM public.tenants AS tenant
-         JOIN public.workspaces AS workspace
-           ON workspace.tenant_id=tenant.id
-          AND workspace.id=pg_catalog.current_setting('app.workspace_id',true)::pg_catalog.uuid
-          AND workspace.status='active'
-         WHERE tenant.id=pg_catalog.current_setting('app.tenant_id',true)::pg_catalog.uuid
-           AND tenant.status='active'
-       )
-     )
-  THEN
-    RETURN false;
+    THEN
+      RETURN false;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1
+      FROM public.tenants AS tenant
+      JOIN public.workspaces AS workspace
+        ON workspace.tenant_id=tenant.id
+       AND workspace.id=pg_catalog.current_setting('app.workspace_id',true)::pg_catalog.uuid
+       AND workspace.status='active'
+      WHERE tenant.id=pg_catalog.current_setting('app.tenant_id',true)::pg_catalog.uuid
+        AND tenant.status='active'
+    ) THEN
+      RETURN false;
+    END IF;
   END IF;
 
   RETURN true;
@@ -147,8 +160,8 @@ BEGIN
     RETURN;
   END IF;
 
-  token_hash := pg_catalog.encode(pg_catalog.digest(p_lease_token,'sha256'),'hex');
-  worker_hash := pg_catalog.encode(pg_catalog.digest(
+  token_hash := pg_catalog.encode(extensions.digest(p_lease_token,'sha256'),'hex');
+  worker_hash := pg_catalog.encode(extensions.digest(
     'document_pipeline|document_scan:process|' || coalesce(pg_catalog.current_setting('app.run_id',true),'')
       || '|' || coalesce(pg_catalog.current_setting('app.correlation_id',true),''),
     'sha256'),'hex');
@@ -204,7 +217,8 @@ BEGIN
           job_row.document_id,job_row.version_id,job_row.object_key,job_row.checksum,job_row.policy_version,
           job_row.attempt_count,job_row.max_attempts,job_row.lease_generation,job_row.lease_expires_at,
           'scanning'::pg_catalog.text,NULL::pg_catalog.text,NULL::pg_catalog.bool,
-          NULL,NULL,NULL,NULL,NULL::pg_catalog.timestamptz,NULL,NULL,NULL;
+          NULL::pg_catalog.text,NULL::pg_catalog.text,NULL::pg_catalog.text,NULL::pg_catalog.text,
+          NULL::pg_catalog.timestamptz,NULL::pg_catalog.text,NULL::pg_catalog.text,NULL::pg_catalog.bool;
       END IF;
       RETURN;
     END IF;
@@ -297,7 +311,8 @@ BEGIN
     job_row.document_id,job_row.version_id,job_row.object_key,job_row.checksum,job_row.policy_version,
     job_row.attempt_count+1,job_row.max_attempts,job_row.lease_generation+1,
     now_ts+interval '10 minutes','scanning'::pg_catalog.text,NULL::pg_catalog.text,NULL::pg_catalog.bool,
-    NULL,NULL,NULL,NULL,NULL::pg_catalog.timestamptz,NULL,NULL,NULL;
+    NULL::pg_catalog.text,NULL::pg_catalog.text,NULL::pg_catalog.text,NULL::pg_catalog.text,
+    NULL::pg_catalog.timestamptz,NULL::pg_catalog.text,NULL::pg_catalog.text,NULL::pg_catalog.bool;
 
   INSERT INTO public.document_lifecycle_events(
     tenant_id,workspace_id,document_id,version_id,actor_kind,actor_membership_id,
@@ -345,7 +360,7 @@ DECLARE
   job_scope pg_catalog.text := NULLIF(pg_catalog.current_setting('app.job_id',true),'');
   generation_scope pg_catalog.text := NULLIF(pg_catalog.current_setting('app.lease_generation',true),'');
   token_hash pg_catalog.text;
-  verdict pg_catalog.text;
+  result_verdict pg_catalog.text;
   job_row record;
   now_ts pg_catalog.timestamptz := pg_catalog.statement_timestamp();
   scanned_ts pg_catalog.timestamptz;
@@ -379,8 +394,8 @@ BEGIN
   END;
   IF scanned_ts>now_ts+interval '5 minutes' THEN RETURN; END IF;
 
-  token_hash := pg_catalog.encode(pg_catalog.digest(p_lease_token,'sha256'),'hex');
-  verdict := CASE p_state WHEN 'clean' THEN 'clean' WHEN 'infected' THEN 'infected' ELSE 'error' END;
+  token_hash := pg_catalog.encode(extensions.digest(p_lease_token,'sha256'),'hex');
+  result_verdict := CASE p_state WHEN 'clean' THEN 'clean' WHEN 'infected' THEN 'infected' ELSE 'error' END;
 
   SELECT * INTO job_row
   FROM public.document_scan_jobs AS job
@@ -419,7 +434,7 @@ BEGIN
     RETURN;
   END IF;
 
-  IF verdict='error' AND p_retryable AND job_row.attempt_count<job_row.max_attempts THEN
+  IF result_verdict='error' AND p_retryable AND job_row.attempt_count<job_row.max_attempts THEN
     retry_next := now_ts + (interval '30 seconds' * job_row.attempt_count);
     UPDATE public.document_scan_jobs AS job
     SET status='retry_wait',next_attempt_at=retry_next,
@@ -451,7 +466,7 @@ BEGIN
   SET status=p_state,next_attempt_at=NULL,
     lease_token_hash=NULL,lease_worker_hash=NULL,lease_acquired_at=NULL,
     lease_heartbeat_at=NULL,lease_expires_at=NULL,
-    verdict=verdict,scanner_adapter_id=p_scanner_adapter_id,scanner_version=p_scanner_version,
+    verdict=result_verdict,scanner_adapter_id=p_scanner_adapter_id,scanner_version=p_scanner_version,
     scanned_checksum=p_scanned_checksum,scanned_at=scanned_ts,result_policy_version=p_result_policy_version,
     reason_code=p_reason_code,result_retryable=coalesce(p_retryable,false)
   WHERE job.id=job_row.id AND job.status='running';
@@ -872,8 +887,8 @@ BEGIN
     RETURN;
   END IF;
 
-  token_hash := pg_catalog.encode(pg_catalog.digest(p_lease_token,'sha256'),'hex');
-  worker_hash := pg_catalog.encode(pg_catalog.digest(
+  token_hash := pg_catalog.encode(extensions.digest(p_lease_token,'sha256'),'hex');
+  worker_hash := pg_catalog.encode(extensions.digest(
     'document_pipeline|document_extraction:process|' || coalesce(pg_catalog.current_setting('app.run_id',true),'')
       || '|' || coalesce(pg_catalog.current_setting('app.correlation_id',true),''),
     'sha256'),'hex');
@@ -967,7 +982,7 @@ BEGIN
         lease_token_hash=NULL,lease_worker_hash=NULL,lease_acquired_at=NULL,
         lease_heartbeat_at=NULL,lease_expires_at=NULL,
         event_at=now_ts,error_code='lease_expired',result_retryable=false,
-        error_fingerprint=pg_catalog.encode(pg_catalog.digest(
+        error_fingerprint=pg_catalog.encode(extensions.digest(
           'lease_expired|' || job.id::pg_catalog.text || '|' || job.lease_generation::pg_catalog.text,
           'sha256'),'hex')
       WHERE job.id=job_row.id AND job.status='running';
@@ -999,7 +1014,7 @@ BEGIN
       lease_token_hash=NULL,lease_worker_hash=NULL,lease_acquired_at=NULL,
       lease_heartbeat_at=NULL,lease_expires_at=NULL,
       event_at=now_ts,error_code='lease_expired',result_retryable=true,
-      error_fingerprint=pg_catalog.encode(pg_catalog.digest(
+      error_fingerprint=pg_catalog.encode(extensions.digest(
         'lease_expired|' || job.id::pg_catalog.text || '|' || job.lease_generation::pg_catalog.text,
         'sha256'),'hex')
     WHERE job.id=job_row.id AND job.status='running';
@@ -1007,7 +1022,7 @@ BEGIN
     job_row.status := 'retry_wait';
     job_row.next_attempt_at := now_ts;
     job_row.error_code := 'lease_expired';
-    job_row.error_fingerprint := pg_catalog.encode(pg_catalog.digest(
+    job_row.error_fingerprint := pg_catalog.encode(extensions.digest(
       'lease_expired|' || job_row.id::pg_catalog.text || '|' || job_row.lease_generation::pg_catalog.text,
       'sha256'),'hex');
     job_row.result_retryable := true;
@@ -1411,7 +1426,7 @@ BEGIN
     RETURN;
   END IF;
 
-  token_hash := pg_catalog.encode(pg_catalog.digest(p_lease_token,'sha256'),'hex');
+  token_hash := pg_catalog.encode(extensions.digest(p_lease_token,'sha256'),'hex');
 
   SELECT * INTO job_row FROM public.document_extraction_jobs AS job
   WHERE job.id=p_job_id::pg_catalog.uuid
@@ -1728,7 +1743,7 @@ BEGIN
     RETURN;
   END IF;
 
-  fingerprint := pg_catalog.encode(pg_catalog.digest(
+  fingerprint := pg_catalog.encode(extensions.digest(
     'lease_expired|' || job_row.id::pg_catalog.text || '|' || job_row.lease_generation::pg_catalog.text,
     'sha256'),'hex');
 
@@ -2243,7 +2258,7 @@ BEGIN
   END IF;
 
   next_version := version_row.claim_version+1;
-  outcome_version := 'claim-version:' || pg_catalog.encode(pg_catalog.digest(
+  outcome_version := 'claim-version:' || pg_catalog.encode(extensions.digest(
     'knowledge-claim-version-v1|' || p_claim_id || '|' || next_version::pg_catalog.text || '|'
       || version_row.document_id::pg_catalog.text || '|' || outcome_state || '|'
       || outcome_value || '|' || coalesce(outcome_unit,'') || '|' || p_reason_code || '|'

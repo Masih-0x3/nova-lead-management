@@ -279,7 +279,7 @@ export function createPostgresDocumentPipelineRepository(
     ): Promise<ExtractionFinalizePersistenceResult> {
       const rows = await callFunction(db,
         "kind,job_id,state,version_state",
-        "novatrade_finalize_document_extraction(?,?,?,?,?,?,?)",
+        "novatrade_finalize_document_extraction(?,?,?,?::pg_catalog.text::pg_catalog.jsonb,?,?,?)",
         [
           request.jobId,
           request.leaseToken,
