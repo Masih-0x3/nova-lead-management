@@ -365,10 +365,9 @@ type EstimateCrawlPayload = z.infer<typeof startPlannerSchema> | z.infer<typeof 
 
 async function requireCrawlPermission(
   selector: TenantSessionSelector,
-  permission: "source:review" | "source:execute" | "queue:operate",
   action: string,
 ): Promise<TenantSession> {
-  const tenantSession = await requireTenantPermission(selector, permission, { action });
+  const tenantSession = await requireTenantPermission(selector, "tenant:read", { action });
   const legacySession = await requirePermission("crawl:manage");
   if (legacySession.userId !== tenantSession.userId) {
     throw new TenantAuthorizationError(403, "TENANT_SCOPE_MISMATCH");
@@ -390,7 +389,7 @@ async function withCrawlPermission<T>(
   action: string,
   callback: (session: TenantSession, db: DbClient) => Promise<T>,
 ): Promise<T> {
-  const tenantSession = await requireCrawlPermission(selector, permission, action);
+  const tenantSession = await requireCrawlPermission(selector, action);
   return runWithTenantContext(tenantSession, `${action}:${randomUUID()}`, () =>
     withTenantDbContext(async (db) => {
       const currentPolicy = await createTenantQueryRepository(db).getCurrentTenantPolicy(tenantSession.tenantId);

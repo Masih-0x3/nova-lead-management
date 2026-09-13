@@ -1,69 +1,89 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const authMocks = vi.hoisted(() => ({ getTenantSession: vi.fn() }));
-const dbIndexMocks = vi.hoisted(() => ({
-  withDbStatementTimeout: vi.fn((_timeoutMs: number, fn: () => Promise<unknown>) => fn()),
-  withTenantDbContext: vi.fn((fn: (db: unknown) => Promise<unknown>) => fn({ kind: "scoped-db" })),
+const surfaceMocks = vi.hoisted(() => ({ loadSurface: vi.fn() }));
+const membershipMocks = vi.hoisted(() => ({
+  isLocalMembershipMutationAvailable: vi.fn(() => true),
+  loadMembershipDirectory: vi.fn(),
 }));
-const authorizationMocks = vi.hoisted(() => ({ assertTenantPermission: vi.fn() }));
-const tenantContextMocks = vi.hoisted(() => ({
-  getTenantContext: vi.fn(() => null),
-  runWithTenantContext: vi.fn((_session: unknown, _correlationId: unknown, fn: () => unknown) => fn()),
-}));
-const snapshotMocks = vi.hoisted(() => ({
-  loadTenantLifecycleSnapshot: vi.fn(),
-  loadLatestDataLifecycleJobs: vi.fn(),
-}));
-const supportMocks = vi.hoisted(() => ({
-  repository: vi.fn(),
-  resolver: vi.fn(),
-  policy: vi.fn(),
-  createService: vi.fn(),
-  listHistory: vi.fn(),
-}));
-const queryMocks = vi.hoisted(() => ({
-  createRepository: vi.fn(),
-  getCurrentTenantPolicy: vi.fn(),
-}));
-const lifecycleLocalMocks = vi.hoisted(() => ({ createService: vi.fn(() => ({ kind: "lifecycle-service" })) }));
-const limitMocks = vi.hoisted(() => ({ createService: vi.fn(() => ({ kind: "limit-service" })) }));
+const operationsControlsMock = vi.hoisted(() => ({ controls: vi.fn() }));
+const lifecycleControlsMock = vi.hoisted(() => ({ controls: vi.fn() }));
 
-vi.mock("@/lib/auth", () => authMocks);
-vi.mock("@/lib/db/index", () => dbIndexMocks);
-vi.mock("@/lib/tenancy/authorize", () => authorizationMocks);
-vi.mock("@/lib/tenancy/context", () => tenantContextMocks);
-vi.mock("@/lib/tenancy/lifecycle-snapshot", () => snapshotMocks);
-vi.mock("@/lib/tenancy/local-support-access", () => ({
-  createLocalSupportAccessRepository: supportMocks.repository,
-  createLocalSupportPrincipalResolver: supportMocks.resolver,
-  createLocalSupportAccessPolicyEvaluator: supportMocks.policy,
+vi.mock("server-only", () => ({}));
+vi.mock("../(protected)/_lib/surface", () => ({
+  loadSurface: surfaceMocks.loadSurface,
+  SurfaceNotice: (props: { kind: "denied" | "unavailable" | "workspace-required" | "error" }) => {
+    const titles = {
+      denied: "Not authorized",
+      unavailable: "Tenant scope unavailable",
+      "workspace-required": "Workspace scope required",
+      error: "Surface unavailable",
+    } as const;
+    return <section data-testid="surface-notice">{titles[props.kind]}</section>;
+  },
+  PendingSeamNotice: (props: { title: string }) => <div data-testid="pending-seam">{props.title}</div>,
 }));
-vi.mock("@/lib/tenancy/support-access", () => ({
-  createSupportAccessService: supportMocks.createService,
+vi.mock("../(protected)/_lib/membership-directory", () => membershipMocks);
+vi.mock("../(protected)/tenancy/workspace", () => ({
+  TenantLifecycleControls: lifecycleControlsMock.controls.mockImplementation(() => (
+    <div data-testid="tenant-lifecycle-controls" />
+  )),
 }));
-vi.mock("@/lib/tenancy/queries", () => ({
-  createTenantQueryRepository: queryMocks.createRepository,
+vi.mock("@/components/admin/tenant-operations-controls", () => ({
+  TenantOperationsControls: operationsControlsMock.controls.mockImplementation(() => (
+    <div data-testid="tenant-operations-controls" />
+  )),
+}));
+vi.mock("@/components/admin/local-membership-admin-controls", () => ({
+  LocalMembershipAdminControls: () => <div data-testid="membership-admin-controls" />,
+}));
+vi.mock("@/components/admin/connector-governance-panel", () => ({
+  ConnectorGovernancePanel: () => <div data-testid="connector-governance-panel" />,
+}));
+vi.mock("@/components/admin/tenant-audit-panel", () => ({
+  TenantAuditPanel: () => <div data-testid="tenant-audit-panel" />,
+}));
+
+// Server-side loaders execute inside loadSurface, which is mocked; stub the
+// module surfaces the page imports so module evaluation has no side effects.
+vi.mock("@/app/api/_shared/l05-deps", () => ({ connectorDeps: vi.fn() }));
+vi.mock("@/lib/connectors/repository", () => ({ createPostgresConnectorAuthorityRepository: vi.fn() }));
+vi.mock("@/lib/connectors/service", () => ({ getConnectorGovernanceView: vi.fn() }));
+vi.mock("@/lib/tenancy/authorize", () => ({ assertTenantPermission: vi.fn() }));
+vi.mock("@/lib/tenancy/lifecycle-snapshot", () => ({
+  loadLatestDataLifecycleJobs: vi.fn(),
+  loadTenantLifecycleSnapshot: vi.fn(),
 }));
 vi.mock("@/lib/tenancy/local-lifecycle-operations", () => ({
-  createLocalTenantLifecycleOperationsService: lifecycleLocalMocks.createService,
+  createLocalTenantLifecycleOperationsService: vi.fn(),
 }));
-vi.mock("@/lib/tenancy/local-tenant-limits", () => ({
-  createLocalTenantLimitService: limitMocks.createService,
+vi.mock("@/lib/tenancy/local-membership-administration", () => ({
+  isLocalMembershipAdministrationAvailable: vi.fn(() => true),
 }));
-vi.mock("@/lib/tenancy/tenant-operations-actions", () => ({
-  requestTenantLifecycleTransitionAction: vi.fn(),
-  requestTenantSupportAccessAction: vi.fn(),
-  decideTenantSupportAccessAction: vi.fn(),
-  requestTenantExportAction: vi.fn(),
-  cancelTenantExportAction: vi.fn(),
-  retryTenantExportAction: vi.fn(),
-  requestTenantDeletionAction: vi.fn(),
-  verifyTenantDeletionAction: vi.fn(),
-  approveTenantDeletionAction: vi.fn(),
-  cancelTenantDeletionAction: vi.fn(),
-  retryTenantDeletionAction: vi.fn(),
+vi.mock("@/lib/tenancy/lifecycle-operations", () => ({
+  TenantLifecycleOpsError: class TenantLifecycleOpsError extends Error {},
 }));
+vi.mock("@/lib/tenancy/local-support-access", () => ({
+  createLocalSupportAccessPolicyEvaluator: vi.fn(),
+  createLocalSupportAccessRepository: vi.fn(),
+  createLocalSupportPrincipalResolver: vi.fn(),
+}));
+vi.mock("@/lib/tenancy/local-tenant-limits", () => ({ createLocalTenantLimitService: vi.fn() }));
+vi.mock("@/lib/tenancy/postgres-deletion-operations", () => ({
+  createPostgresDeletionOperationsService: vi.fn(),
+}));
+vi.mock("@/lib/tenancy/postgres-export-operations", () => ({
+  createPostgresExportOperationsService: vi.fn(),
+  createPostgresExportRunner: vi.fn(),
+}));
+vi.mock("@/lib/tenancy/postgres-support-access", () => ({
+  createPostgresSupportAccessPolicyEvaluator: vi.fn(),
+  createPostgresSupportAccessRepository: vi.fn(),
+  createPostgresSupportPrincipalResolver: vi.fn(),
+}));
+vi.mock("@/lib/tenancy/postgres-tenant-limits", () => ({ createPostgresTenantLimitService: vi.fn() }));
+vi.mock("@/lib/tenancy/support-access", () => ({ createSupportAccessService: vi.fn() }));
+vi.mock("@/lib/tenancy/queries", () => ({ createTenantQueryRepository: vi.fn() }));
 
 import TenancyPage from "@/app/(protected)/tenancy/page";
 
@@ -71,8 +91,6 @@ const TENANT_ID = "10000000-0000-4000-8000-000000000001";
 const USER_ID = "20000000-0000-4000-8000-000000000001";
 const MEMBERSHIP_ID = "30000000-0000-4000-8000-000000000001";
 const ROLE_BINDING_ID = "40000000-0000-4000-8000-000000000001";
-const GRANT_ID = "60000000-0000-4000-8000-000000000001";
-const SUPPORT_ACTOR_ID = "70000000-0000-4000-8000-000000000001";
 
 const TENANT_SESSION = {
   userId: USER_ID,
@@ -85,59 +103,21 @@ const TENANT_SESSION = {
   role: "owner",
 } as const;
 
-const SNAPSHOT = {
-  tenant: {
-    id: TENANT_ID,
-    slug: "ops-tenant",
-    name: "Ops Tenant",
-    status: "active",
-    locale: "en-US",
-    timezone: "UTC",
-    createdAt: "2026-08-01T00:00:00.000Z",
-    updatedAt: "2026-08-02T00:00:00.000Z",
-  },
-  workspace: null,
-  lifecycleVersion: 2,
-  reasonCode: "owner_acceptance",
-  reason: "Tenant activated when the owner accepted the provisioning invitation.",
-  freezeHandoffStatus: "not_started",
-  accessRevocationHandoffStatus: "not_started",
-  changedAt: "2026-08-02T00:00:00.000Z",
-  audit: {
-    state: "recorded",
-    tenantId: TENANT_ID,
-    workspaceId: null,
-    lifecycleVersion: 2,
-    eventId: "90000000-0000-4000-8000-000000000001",
-    actorId: USER_ID,
-    fromStatus: "suspended",
-    toStatus: "active",
-    recordedAt: "2026-08-02T00:00:00.000Z",
-  },
+const TENANT = {
+  id: TENANT_ID,
+  slug: "demo-tenant",
+  name: "Local Demo Tenant",
+  status: "active",
+  locale: "en-US",
+  timezone: "UTC",
 } as const;
 
-const GRANT = {
-  id: GRANT_ID,
+const WORKSPACE = {
+  id: "50000000-0000-4000-8000-000000000001",
   tenantId: TENANT_ID,
-  workspaceId: null,
-  supportActorAuthIdentityId: SUPPORT_ACTOR_ID,
-  platformRole: "platform_support",
-  requestedByAuthIdentityId: USER_ID,
-  approvedByAuthIdentityId: null,
-  approvedAt: null,
-  revokedByAuthIdentityId: null,
-  revokedAt: null,
-  state: "pending",
-  reasonCode: "incident.review",
-  reason: "Investigate a stuck pipeline.",
-  startsAt: "2026-01-01T00:00:00.000Z",
-  expiresAt: "2999-01-01T00:00:00.000Z",
-  correlationId: "corr-page-test-1",
-  auditEventId: "90000000-0000-4000-8000-000000000009",
-  permissions: ["tenant:read"],
-  dataClasses: ["tenant_metadata"],
-  createdAt: "2026-08-01T00:00:00.000Z",
-  updatedAt: "2026-08-01T00:00:00.000Z",
+  slug: "primary",
+  name: "Primary",
+  status: "active",
 } as const;
 
 const POLICY = {
@@ -170,95 +150,121 @@ const POLICY = {
   updatedAt: "2026-08-01T00:00:00.000Z",
 } as const;
 
+const SNAPSHOT = {
+  tenant: TENANT,
+  workspace: null,
+  lifecycleVersion: 2,
+  reasonCode: "owner_acceptance",
+  reason: "Tenant activated when the owner accepted the provisioning invitation.",
+  freezeHandoffStatus: "not_started",
+  accessRevocationHandoffStatus: "not_started",
+  changedAt: "2026-08-02T00:00:00.000Z",
+  audit: null,
+} as const;
+
+const DIRECTORY = {
+  actor: { id: MEMBERSHIP_ID },
+  memberships: [{ id: MEMBERSHIP_ID }],
+  history: [],
+} as const;
+
+const OPERATIONS = {
+  lifecycleSnapshot: SNAPSHOT,
+  supportGrant: null,
+  exportJob: null,
+  deletionJob: null,
+  policyAuthorizations: { "data:export": true, "data:delete": false },
+} as const;
+
+function readyOutcome(overrides: Readonly<{
+  role?: string;
+  workspaceId?: string | null;
+  operations?: typeof OPERATIONS | null;
+}> = {}) {
+  return {
+    state: "ready" as const,
+    session: {
+      ...TENANT_SESSION,
+      role: (overrides.role ?? "owner") as typeof TENANT_SESSION.role,
+      workspaceId: overrides.workspaceId === undefined ? null : overrides.workspaceId,
+    },
+    data: {
+      tenant: TENANT,
+      workspaces: [WORKSPACE],
+      policy: POLICY,
+      directory: DIRECTORY,
+      directoryFailed: false,
+      auditEntries: [],
+      governance: null,
+      operations: overrides.operations === undefined ? OPERATIONS : overrides.operations,
+    },
+  };
+}
+
 describe("TenancyPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.unstubAllEnvs();
-    authMocks.getTenantSession.mockResolvedValue(TENANT_SESSION);
-    authorizationMocks.assertTenantPermission.mockResolvedValue(TENANT_SESSION);
-    snapshotMocks.loadTenantLifecycleSnapshot.mockResolvedValue(SNAPSHOT);
-    snapshotMocks.loadLatestDataLifecycleJobs.mockResolvedValue({ exportJob: null, deletionJob: null });
-    queryMocks.createRepository.mockReturnValue({ getCurrentTenantPolicy: queryMocks.getCurrentTenantPolicy });
-    queryMocks.getCurrentTenantPolicy.mockResolvedValue(POLICY);
-    supportMocks.createService.mockReturnValue({ listHistory: supportMocks.listHistory });
-    supportMocks.listHistory.mockResolvedValue({ ok: true, code: "OK_SUPPORT_AUTHORIZED", grants: [GRANT] });
+    operationsControlsMock.controls.mockClear();
+    surfaceMocks.loadSurface.mockResolvedValue(readyOutcome());
   });
 
-  it("renders the lifecycle panel and latest support grant for an owner", async () => {
+  it("renders every tenant-administration section for an owner", async () => {
     const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain('data-tenant-lifecycle-state="ready"');
-    expect(html).toContain('data-surface="tenant-lifecycle-panel"');
-    expect(html).toContain('data-support-access-state="ready"');
-    expect(html).toContain('data-lifecycle-state="ready"');
-    expect(html).toContain("Request tenant suspension");
-    expect(html).toContain("Request tenant archive");
-    expect(html).toContain("Request export");
-    expect(html).toContain("Approve grant");
-    expect(snapshotMocks.loadTenantLifecycleSnapshot).toHaveBeenCalledWith({ kind: "scoped-db" }, TENANT_ID);
-    expect(snapshotMocks.loadLatestDataLifecycleJobs).toHaveBeenCalledWith(
-      { kind: "scoped-db" }, TENANT_ID, { kind: "lifecycle-service" },
+    for (const section of [
+      "Tenant overview",
+      "Tenant lifecycle",
+      "Members",
+      "Tenant policy",
+      "Connector governance",
+      "Tenant audit",
+      "Data lifecycle &amp; support access",
+    ]) {
+      expect(html).toContain(section);
+    }
+    expect(html).toContain('data-testid="tenant-operations-controls"');
+  });
+
+  it("passes the operations surface and admin mutation flags to the controls", async () => {
+    renderToStaticMarkup(await TenancyPage());
+    expect(operationsControlsMock.controls).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lifecycleSnapshot: SNAPSHOT,
+        lifecycleMutations: true,
+        supportMutations: true,
+        dataMutations: true,
+        supportScope: { tenantId: TENANT_ID, workspaceId: null },
+        actorAuthIdentityId: USER_ID,
+      }),
+      undefined,
     );
   });
 
-  it("fails closed when no tenant session resolves", async () => {
-    authMocks.getTenantSession.mockResolvedValue(null);
+  it("renders an empty operations notice when the surface cannot be loaded", async () => {
+    surfaceMocks.loadSurface.mockResolvedValue(readyOutcome({ operations: null }));
     const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain('data-tenancy-state="tenant_scope_unavailable"');
-    expect(html).not.toContain('data-surface="tenant-lifecycle-panel"');
+    expect(html).toContain("Operations unavailable");
+    expect(html).not.toContain('data-testid="tenant-operations-controls"');
   });
 
-  it("fails closed for workspace-scoped sessions", async () => {
-    authMocks.getTenantSession.mockResolvedValue({ ...TENANT_SESSION, workspaceId: GRANT_ID });
+  it("fails closed with Not authorized when the membership permission is denied", async () => {
+    surfaceMocks.loadSurface.mockResolvedValue({ state: "failed", kind: "denied" });
     const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain('data-tenancy-state="tenant_scope_unavailable"');
+    expect(html).toContain("Not authorized");
+    expect(html).not.toContain("Tenant overview");
+    expect(operationsControlsMock.controls).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the read permission is denied", async () => {
-    authorizationMocks.assertTenantPermission.mockRejectedValue(new Error("denied"));
+  it("fails closed when the tenant scope cannot be resolved", async () => {
+    surfaceMocks.loadSurface.mockResolvedValue({ state: "failed", kind: "unavailable" });
     const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain('data-tenancy-state="tenant_scope_unavailable"');
+    expect(html).toContain("Tenant scope unavailable");
+    expect(operationsControlsMock.controls).not.toHaveBeenCalled();
   });
 
-  it("renders read-only for non-admin roles without loading support grants", async () => {
-    authMocks.getTenantSession.mockResolvedValue({ ...TENANT_SESSION, role: "researcher" });
+  it("renders the error surface when the load fails", async () => {
+    surfaceMocks.loadSurface.mockResolvedValue({ state: "failed", kind: "error" });
     const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain('data-tenant-lifecycle-state="ready"');
-    expect(html).not.toContain("Request tenant suspension");
-    expect(html).not.toContain('data-support-access-state="ready"');
-    expect(html).not.toContain('data-lifecycle-state="ready"');
-    expect(supportMocks.listHistory).not.toHaveBeenCalled();
-    expect(snapshotMocks.loadLatestDataLifecycleJobs).not.toHaveBeenCalled();
-    expect(queryMocks.getCurrentTenantPolicy).not.toHaveBeenCalled();
-  });
-
-  it("hides data-lifecycle mutations when the policy cannot be verified", async () => {
-    queryMocks.getCurrentTenantPolicy.mockResolvedValue(null);
-    const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain("Data lifecycle unavailable");
-    expect(html).not.toContain("Request export");
-  });
-
-  it("exposes deletion request only once the tenant is archived", async () => {
-    snapshotMocks.loadTenantLifecycleSnapshot.mockResolvedValue({
-      ...SNAPSHOT,
-      tenant: { ...SNAPSHOT.tenant, status: "archived" },
-      audit: { ...SNAPSHOT.audit, fromStatus: "suspended", toStatus: "archived" },
-    });
-    const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain("Request deletion");
-    expect(html).not.toContain("Request tenant suspension");
-  });
-
-  it("renders the empty grant state when none is recorded", async () => {
-    supportMocks.listHistory.mockResolvedValue({ ok: true, code: "OK_SUPPORT_AUTHORIZED", grants: [] });
-    const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain('data-support-access-state="empty"');
-    expect(html).toContain("Request support access");
-  });
-
-  it("fails closed when the snapshot load throws", async () => {
-    snapshotMocks.loadTenantLifecycleSnapshot.mockRejectedValue(new Error("db"));
-    const html = renderToStaticMarkup(await TenancyPage());
-    expect(html).toContain('data-tenancy-state="operations_load_error"');
+    expect(html).toContain("Surface unavailable");
+    expect(operationsControlsMock.controls).not.toHaveBeenCalled();
   });
 });
