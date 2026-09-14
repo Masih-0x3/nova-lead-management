@@ -257,7 +257,7 @@ describe("authenticated adapters bind the actor to the resolved session", () => 
     };
     const result = await transitionAuthenticatedUnderstandingReview(
       scope,
-      request as Parameters<typeof transitionAuthenticatedUnderstandingReview>[1],
+      request as unknown as Parameters<typeof transitionAuthenticatedUnderstandingReview>[1],
       dependencies,
     );
 
@@ -299,5 +299,230 @@ describe("authenticated adapters bind the actor to the resolved session", () => 
       status: 403,
       code: "PERMISSION_DENIED",
     });
+  });
+});
+
+describe("actor binding snapshots descriptor-only data records", () => {
+  function reviewRequest(actorField: Record<string, unknown> | PropertyDescriptor) {
+    const { review } = understandingInReview();
+    const request: Record<string, unknown> = {
+      versionId: review.versionId,
+      expectedReviewHash: review.reviewHash,
+      to: "approved",
+      reason: "Human approval.",
+    };
+    if ("value" in actorField || "get" in actorField || "set" in actorField) {
+      Object.defineProperty(request, "actor", actorField as PropertyDescriptor);
+    } else {
+      Object.assign(request, actorField);
+    }
+    return { review, request };
+  }
+
+  it("rejects an actor record carrying extra keys", async () => {
+    await expect(transitionAuthenticatedUnderstandingReview(scope, {
+      versionId: "10000000-0000-4000-8000-0000000000c1",
+      expectedReviewHash: HASH_A,
+      to: "approved",
+      reason: "Human approval.",
+      actor: { kind: "human", actorId: SESSION_USER, extra: "field" } as unknown as
+        { kind: "human"; actorId: string },
+    }, dependencies)).rejects.toMatchObject({
+      status: 403,
+      code: "PERMISSION_DENIED",
+    });
+  });
+
+  it("rejects a null actor rather than treating it as omitted", async () => {
+    await expect(transitionAuthenticatedUnderstandingReview(scope, {
+      versionId: "10000000-0000-4000-8000-0000000000c1",
+      expectedReviewHash: HASH_A,
+      to: "approved",
+      reason: "Human approval.",
+      actor: null as unknown as { kind: "human"; actorId: string },
+    }, dependencies)).rejects.toMatchObject({
+      status: 403,
+      code: "PERMISSION_DENIED",
+    });
+  });
+
+  it("rejects a matching actor supplied through a getter without invoking it", async () => {
+    let invocations = 0;
+    const { request } = reviewRequest({
+      get: () => {
+        invocations += 1;
+        return { kind: "human", actorId: SESSION_USER };
+      },
+      enumerable: true,
+    });
+    await expect(transitionAuthenticatedUnderstandingReview(
+      scope,
+      request as unknown as Parameters<typeof transitionAuthenticatedUnderstandingReview>[1],
+      dependencies,
+    )).rejects.toMatchObject({ status: 403, code: "PERMISSION_DENIED" });
+    expect(invocations).toBe(0);
+  });
+
+  it("rejects an actor whose fields are accessors without invoking them", async () => {
+    let invocations = 0;
+    const actor = { kind: "human" };
+    Object.defineProperty(actor, "actorId", {
+      get: () => {
+        invocations += 1;
+        return SESSION_USER;
+      },
+      enumerable: true,
+    });
+    await expect(transitionAuthenticatedUnderstandingReview(scope, {
+      versionId: "10000000-0000-4000-8000-0000000000c1",
+      expectedReviewHash: HASH_A,
+      to: "approved",
+      reason: "Human approval.",
+      actor: actor as { kind: "human"; actorId: string },
+    }, dependencies)).rejects.toMatchObject({ status: 403, code: "PERMISSION_DENIED" });
+    expect(invocations).toBe(0);
+  });
+
+  it("rejects proxied and revoked-proxy actors", async () => {
+    const proxied = new Proxy({ kind: "human" as const, actorId: SESSION_USER }, {});
+    await expect(transitionAuthenticatedUnderstandingReview(scope, {
+      versionId: "10000000-0000-4000-8000-0000000000c1",
+      expectedReviewHash: HASH_A,
+      to: "approved",
+      reason: "Human approval.",
+      actor: proxied,
+    }, dependencies)).rejects.toMatchObject({ status: 403, code: "PERMISSION_DENIED" });
+
+    const revoked = Proxy.revocable({ kind: "human" as const, actorId: SESSION_USER }, {});
+    revoked.revoke();
+    await expect(transitionAuthenticatedUnderstandingReview(scope, {
+      versionId: "10000000-0000-4000-8000-0000000000c1",
+      expectedReviewHash: HASH_A,
+      to: "approved",
+      reason: "Human approval.",
+      actor: revoked.proxy,
+    }, dependencies)).rejects.toMatchObject({ status: 403, code: "PERMISSION_DENIED" });
+  });
+
+  it("rejects actors with symbol-keyed or non-enumerable fields", async () => {
+    const symbolKeyed: { kind: "human"; actorId: string } & Record<symbol, number> =
+      { kind: "human", actorId: SESSION_USER, [Symbol("tag")]: 1 };
+    await expect(transitionAuthenticatedUnderstandingReview(scope, {
+      versionId: "10000000-0000-4000-8000-0000000000c1",
+      expectedReviewHash: HASH_A,
+      to: "approved",
+      reason: "Human approval.",
+      actor: symbolKeyed,
+    }, dependencies)).rejects.toMatchObject({ status: 403, code: "PERMISSION_DENIED" });
+
+    const hidden = { kind: "human" as const };
+    Object.defineProperty(hidden, "actorId", { value: SESSION_USER, enumerable: false });
+    await expect(transitionAuthenticatedUnderstandingReview(scope, {
+      versionId: "10000000-0000-4000-8000-0000000000c1",
+      expectedReviewHash: HASH_A,
+      to: "approved",
+      reason: "Human approval.",
+      actor: hidden as { kind: "human"; actorId: string },
+    }, dependencies)).rejects.toMatchObject({ status: 403, code: "PERMISSION_DENIED" });
+  });
+
+  it("rejects accessor-trapped request fields without invoking them", async () => {
+    let invocations = 0;
+    const { review } = understandingInReview();
+    const request: Record<string, unknown> = {
+      versionId: review.versionId,
+      expectedReviewHash: review.reviewHash,
+      to: "approved",
+      actor: { kind: "human", actorId: SESSION_USER },
+    };
+    Object.defineProperty(request, "reason", {
+      get: () => {
+        invocations += 1;
+        return "Human approval.";
+      },
+      enumerable: true,
+    });
+    await expect(transitionAuthenticatedUnderstandingReview(
+      scope,
+      request as unknown as Parameters<typeof transitionAuthenticatedUnderstandingReview>[1],
+      dependencies,
+    )).rejects.toMatchObject({ status: 403, code: "PERMISSION_DENIED" });
+    expect(invocations).toBe(0);
+  });
+
+  it("rejects a getter-supplied actor on the activation boundary before persistence", async () => {
+    const calls: string[] = [];
+    strategyRepository.current = {
+      getActivationState: async () => {
+        calls.push("getActivationState");
+        return null;
+      },
+    } as unknown as StrategyRepository;
+    let invocations = 0;
+    const request: Record<string, unknown> = {
+      stableKey: "lead-play:getter",
+      playVersionId: "70000000-0000-4000-8000-0000000000b1",
+      action: "activate",
+      reason: "Getter-supplied actor.",
+    };
+    Object.defineProperty(request, "actor", {
+      get: () => {
+        invocations += 1;
+        return { kind: "human", actorId: SESSION_USER };
+      },
+      enumerable: true,
+    });
+    await expect(transitionAuthenticatedLeadPlayActivation(
+      scope,
+      request as unknown as Parameters<typeof transitionAuthenticatedLeadPlayActivation>[1],
+      dependencies,
+    )).rejects.toMatchObject({ status: 403, code: "PERMISSION_DENIED" });
+    expect(invocations).toBe(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("preserves unknown request fields for the domain parser to reject", async () => {
+    const { source, review } = understandingInReview();
+    let applied = 0;
+    understandingRepository.current = {
+      getVersion: async (_s, versionId) => (versionId === review.versionId ? {
+        tenantId: TENANT,
+        workspaceId: WORKSPACE,
+        versionId: review.versionId,
+        proposalRef: review.proposalRef,
+        revision: review.revision,
+        supersedesProposalRef: null,
+        supersedesVersionId: null,
+        contentHash: review.contentHash,
+        claimSetHash: review.claimSetHash,
+        source: source as unknown,
+        review,
+        createdAt: "2026-08-30T12:00:00.000Z",
+        updatedAt: "2026-08-30T12:01:00.000Z",
+      } : null),
+      getLatestVersionByProposalRef: async () => null,
+      listVersions: async () => [],
+      appendVersion: async () => "conflict" as const,
+      applyReviewTransition: async () => {
+        applied += 1;
+        return "updated" as const;
+      },
+    };
+
+    // replacementVersionId is a real request field the domain processes: the
+    // repository returns null for it, so if the binder preserved the field the
+    // domain answers NOT_FOUND — if it had been silently dropped the
+    // transition would have applied.
+    const result = await transitionAuthenticatedUnderstandingReview(scope, {
+      versionId: review.versionId,
+      expectedReviewHash: review.reviewHash,
+      to: "approved",
+      reason: "Human approval.",
+      actor: { kind: "human", actorId: SESSION_USER },
+      replacementVersionId: `understanding-version:${"c".repeat(64)}`,
+    }, dependencies);
+
+    expect(result).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(applied).toBe(0);
   });
 });

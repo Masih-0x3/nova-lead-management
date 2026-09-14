@@ -145,6 +145,52 @@ describe("l05 review queue service", () => {
     },
   );
 
+  it("anchors a fresh queue before a delayed producer's backdated first event", async () => {
+    const store = fakeStore();
+    // The producer stamped the event at 10:00 but the service clock has
+    // already moved to 12:00 — the queue must be anchored before the event,
+    // not at the current time, or the strict chronology guard rejects it.
+    const deps = { repository: store.repository, clock: () => new Date("2026-08-30T12:00:00.000Z") };
+    const result = await enqueueItem(deps, enqueueInput({ at: "2026-08-30T10:00:00.000Z" }));
+    expect(result.replayed).toBe(false);
+    expect(result.queue.createdAt).toBe("2026-08-30T09:59:59.999Z");
+    expect(result.queue.events[0]!.at).toBe("2026-08-30T10:00:00.000Z");
+  });
+
+  it("rejects a malformed at before persisting a queue anchored at garbage", async () => {
+    const store = fakeStore();
+    const deps = { repository: store.repository, clock: () => new Date("2026-08-30T12:00:00.000Z") };
+    // Date.parse accepts this string but the engine's canonical timestamp
+    // contract does not — anchoring a new queue at the parse result would
+    // persist a queue every real event timestamp violates.
+    await expect(enqueueItem(deps, enqueueInput({ at: "12/31/2099" })))
+      .rejects.toMatchObject({ code: "REVIEW_INPUT_INVALID" });
+    expect(store.queues.size).toBe(0);
+    const result = await enqueueItem(deps, enqueueInput({}));
+    expect(result.replayed).toBe(false);
+  });
+
+  it("does not persist a queue for a transition that can never apply", async () => {
+    const store = fakeStore();
+    const deps = { repository: store.repository, clock: () => new Date("2026-08-30T12:00:00.000Z") };
+    // A claim on a fresh workspace can never succeed — a new empty queue has
+    // no items — but getOrCreateQueue still persisted one, and a later
+    // producer-stamped first event before that anchor would wedge forever.
+    await expect(transitionItem(deps, {
+      tenantId: TENANT,
+      workspaceId: WORKSPACE,
+      itemId: `review-item:${"d".repeat(64)}`,
+      action: "claim",
+      actorId: HUMAN,
+      reason: "Claiming for review.",
+      leaseExpiresAt: "2026-08-30T12:30:00.000Z",
+      at: "2026-08-30T12:00:00.000Z",
+    })).rejects.toMatchObject({ code: "REVIEW_STALE" });
+    expect(store.queues.size).toBe(0);
+    const result = await enqueueItem(deps, enqueueInput({ at: "2026-08-30T10:00:00.000Z" }));
+    expect(result.replayed).toBe(false);
+  });
+
   it("still rejects a stale second event without changing an existing queue", async () => {
     const store = fakeStore();
     const deps = { repository: store.repository, clock: () => new Date("2026-08-30T12:00:00.000Z") };

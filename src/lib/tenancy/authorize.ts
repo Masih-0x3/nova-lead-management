@@ -415,47 +415,70 @@ export function requireTenantResource<T extends TenantProtectedResource>(
 }
 
 /**
- * Binds a transition request's human actor to the resolved session. A supplied
- * actor must be exactly `{ kind: "human", actorId: session.userId }`; any other
- * supplied actor — including another user's id or a non-human kind — is a
- * spoofing attempt and is denied. When the field is absent the session user is
- * attributed. Proxied or accessor-trapped requests are returned unchanged so
- * the domain layer's own fail-closed validation still rejects them.
+ * Snapshots a value's own properties as descriptors without ever invoking
+ * accessors: the value must be a plain record (Object or null prototype, not a
+ * proxy or array) whose every own key is a string naming an enumerable data
+ * field. Anything else — proxies (including revoked), getters/setters, symbol
+ * keys, or non-enumerable fields — is not a trustworthy data record.
+ */
+function dataDescriptors(value: unknown): PropertyDescriptorMap | null {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value) || isProxy(value)) {
+      return null;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (const key of Reflect.ownKeys(descriptors)) {
+      if (typeof key !== "string") return null;
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+    }
+    return descriptors;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Binds a transition request's human actor to the resolved session. The request
+ * must be a descriptor-only plain record; a supplied actor must itself be a
+ * plain record carrying exactly two enumerable data fields,
+ * `{ kind: "human", actorId: session.userId }` — anything else, including null,
+ * extra keys, accessors, or a mismatched identity, is denied. A missing or
+ * undefined actor is attributed to the session user. A proxied request is
+ * returned unchanged for the domain layer's own native proxy rejection; every
+ * other malformed container is denied here so no untrusted accessor can run.
+ * Unknown request fields are preserved verbatim for the domain parser.
  */
 export function bindRequestActorToSession<T extends { readonly actor?: unknown }>(
   session: TenantSession,
   request: T,
 ): T {
-  if (isProxy(request)) return request;
-  let supplied: unknown;
   try {
-    supplied = request.actor;
+    if (isProxy(request)) return request;
   } catch {
     return request;
   }
-  if (supplied !== undefined && supplied !== null) {
-    try {
-      const actor = supplied as { kind?: unknown; actorId?: unknown };
-      if (
-        typeof supplied !== "object" ||
-        isProxy(supplied) ||
-        Array.isArray(supplied) ||
-        actor.kind !== "human" ||
-        actor.actorId !== session.userId
-      ) {
-        forbidden("PERMISSION_DENIED");
-      }
-    } catch (error) {
-      if (error instanceof TenantAuthorizationError) throw error;
+  const descriptors = dataDescriptors(request);
+  if (descriptors === null) forbidden("PERMISSION_DENIED");
+  const actorDescriptor = descriptors.actor;
+  if (actorDescriptor !== undefined && actorDescriptor.value !== undefined) {
+    const actorDescriptors = dataDescriptors(actorDescriptor.value);
+    const keys = actorDescriptors === null ? null : Reflect.ownKeys(actorDescriptors);
+    if (
+      keys === null || keys.length !== 2
+      || actorDescriptors?.kind?.value !== "human"
+      || actorDescriptors?.actorId?.value !== session.userId
+    ) {
       forbidden("PERMISSION_DENIED");
     }
   }
-  try {
-    return Object.freeze({
-      ...request,
-      actor: Object.freeze({ kind: "human" as const, actorId: session.userId }),
-    });
-  } catch {
-    return request;
-  }
+  descriptors.actor = {
+    value: Object.freeze({ kind: "human" as const, actorId: session.userId }),
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  };
+  return Object.freeze(Object.defineProperties({}, descriptors)) as T;
 }

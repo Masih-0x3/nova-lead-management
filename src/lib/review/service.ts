@@ -26,6 +26,7 @@ export class ReviewServiceError extends Error {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const ITEM_ID = /^review-item:[0-9a-f]{64}$/u;
+const CANONICAL_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const KINDS = new Set(["ambiguous_account_resolution", "qualification_review", "buying_center_review"]);
 const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 
@@ -137,8 +138,15 @@ export async function enqueueItem(
   // persisted (or in the same millisecond). Anchor a new empty log before
   // that event, preserving the event timestamp and the engine's strict
   // chronology. Existing queues retain their original creation/history.
+  // `at` must satisfy the engine's canonical timestamp contract, not just
+  // Date.parse's wider grammar — otherwise a malformed value would persist a
+  // queue anchored at a date no real event can follow.
   const firstEventTime = Date.parse(at);
-  if (!Number.isFinite(firstEventTime)) throw invalid("at is malformed");
+  if (!CANONICAL_TIMESTAMP.test(at)
+    || !Number.isFinite(firstEventTime)
+    || new Date(firstEventTime).toISOString() !== at) {
+    throw invalid("at is malformed");
+  }
   const { queue, queueSha256 } = await getOrCreateQueue({
     ...deps,
     clock: () => new Date(Math.min(Date.parse(nowIso(deps.clock)), firstEventTime - 1)),
@@ -208,7 +216,14 @@ export async function transitionItem(
     : typeof rawInput.at === "string" ? rawInput.at
       : (() => { throw invalid("at is malformed"); })();
 
-  const { queue, queueSha256 } = await getOrCreateQueue(deps, { tenantId, workspaceId });
+  // A transition can never apply to a queue that does not exist — a fresh
+  // queue has no items — so look up rather than lazily create: persisting an
+  // empty queue here would anchor it at the service clock and reject every
+  // earlier producer-stamped first event as INVALID_CHRONOLOGY forever.
+  const stored = await deps.repository.getQueue(tenantId, workspaceId);
+  if (!stored) throw engineFailure("NOT_FOUND_OR_STALE");
+  const queue = stored.payload as unknown as ReviewQueue;
+  const queueSha256 = stored.queueSha256;
   const transitioned = transitionReviewQueueItem({
     version: 1, tenantId, workspaceId,
     current: queue,
