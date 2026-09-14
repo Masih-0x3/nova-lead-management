@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createLocalDocumentStore } from "@/lib/documents/local-storage-adapter";
 import {
   claimDocumentExtractionJob,
   executeDocumentExtraction,
@@ -14,16 +13,8 @@ import {
   workerBodyUuid,
 } from "@/lib/documents/pipeline-worker-route";
 import { createPostgresDocumentPipelineRepository } from "@/lib/documents/postgres-pipeline-repository";
+import { documentRuntimeServices } from "@/lib/documents/runtime-services";
 import { applyNoStoreHeaders } from "@/lib/http-cache";
-
-const STORE_ROOT_ENV = "NOVA_DOCUMENT_STORE_ROOT";
-const SIGNING_SECRET_ENV = "NOVA_DOCUMENT_SIGNING_SECRET";
-
-function localReader() {
-  const rootDir = process.env[STORE_ROOT_ENV]?.trim() || ".data/document-objects";
-  const signingSecret = process.env[SIGNING_SECRET_ENV]?.trim() ?? "";
-  return createLocalDocumentStore({ rootDir, signingSecret });
-}
 
 /**
  * Claims one extraction job under a discovery scope, runs the parser pipeline
@@ -53,7 +44,7 @@ export async function POST(request: NextRequest) {
       }
       const lease = claim.lease;
       const finalizeRequest = await executeDocumentExtraction(lease, {
-        reader: localReader(),
+        reader: documentRuntimeServices().storage,
         signal,
       });
       const persisted = await context.run(

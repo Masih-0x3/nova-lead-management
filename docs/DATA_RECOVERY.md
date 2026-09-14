@@ -24,6 +24,14 @@ the tenant foundation and operations tables accepted by T-023, T-024, and
 T-028. The remaining 20 are the original legacy/operations tables. The order
 is part of the manifest and is checked exactly; it is not an operator hint.
 
+> The expanded L-02–L-06 durable PostgreSQL tables are recovered by the
+> separate `novatrade-pg-recovery` v1 contract — see
+> `docs/DATA_RECOVERY_POSTGRES.md`. That contract is intentionally separate:
+> this portable schema-4 path stays frozen at 37 tables and remains the only
+> SQLite compatibility-lane recovery story. `verify-data-recovery.mjs`
+> delegates full-Postgres classification to the new contract, so no migrated
+> public table can go unclassified without failing coverage.
+
 `compatibility_backfill_receipts` is a T-028 dynamically prepared SQLite
 table. It is not required to be present in static `SCHEMA_SQL` before the
 preparation function runs. Export and recovery verification fail clearly when

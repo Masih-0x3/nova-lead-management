@@ -132,6 +132,33 @@ function enqueueInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe("l05 review queue service", () => {
+  it.each([undefined, "2026-08-30T12:00:00.000Z"])(
+    "enqueues the first item on a fresh workspace with its live event timestamp (%s)",
+    async (at) => {
+      const store = fakeStore();
+      const deps = { repository: store.repository, clock: () => new Date("2026-08-30T12:00:00.000Z") };
+      const result = await enqueueItem(deps, enqueueInput({ at }));
+      expect(result.replayed).toBe(false);
+      expect(store.items.size).toBe(1);
+      expect(store.events).toHaveLength(1);
+      expect(Date.parse(result.queue.events[0]!.at)).toBeGreaterThan(Date.parse(result.queue.createdAt));
+    },
+  );
+
+  it("still rejects a stale second event without changing an existing queue", async () => {
+    const store = fakeStore();
+    const deps = { repository: store.repository, clock: () => new Date("2026-08-30T12:00:00.000Z") };
+    const at = "2026-08-30T12:00:00.000Z";
+    const first = await enqueueItem(deps, enqueueInput({ at }));
+    await expect(enqueueItem(deps, enqueueInput({
+      at,
+      subject: { subjectId: "account-qualification:second", versionId: "version:second", contentHash: HASH_A },
+    }))).rejects.toMatchObject({ code: "REVIEW_CONFLICT" });
+    expect(store.items.size).toBe(1);
+    expect(store.events).toHaveLength(1);
+    expect([...store.queues.values()][0]!.queueSha256).toBe(first.queue.queueHash.slice(7));
+  });
+
   it("creates the durable queue on first use and reuses it after", async () => {
     const store = fakeStore();
     const deps = { repository: store.repository, clock: () => new Date("2026-08-30T12:00:00.000Z") };

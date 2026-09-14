@@ -10,6 +10,13 @@ const SAFE_LEAD_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 /** @typedef {Record<string, string | undefined>} E2EEnvironment */
 /** @typedef {{id: string, name: string, href: string, qualificationStatus: string, qualificationLabel: string}} DisposableLeadFixture */
 
+/** Location shared by the happy/degraded acceptance specs.
+ * @param {E2EEnvironment} [env]
+ */
+export function acceptanceStatePath(env = process.env) {
+  return resolve(env.E2E_ACCEPTANCE_STATE_FILE?.trim() || "e2e/.acceptance-state.json");
+}
+
 /** @param {E2EEnvironment} [env] */
 export function hasE2EAuth(env = process.env) {
   const storageState = env.E2E_STORAGE_STATE?.trim() ?? "";
