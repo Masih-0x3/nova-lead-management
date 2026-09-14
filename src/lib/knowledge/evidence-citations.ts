@@ -209,7 +209,7 @@ function stableId(prefix: "evidence" | "citation", parts: readonly string[]): st
   return `${prefix}:${hashReference(parts).slice("sha256:".length)}`;
 }
 
-function parseLocator(value: unknown): RenderSafeSourceLocator | null {
+export function parseRenderSafeSourceLocator(value: unknown): RenderSafeSourceLocator | null {
   if (typeof value !== "object" || value === null || isProxy(value) || Array.isArray(value)) return null;
   const kindDescriptor = Object.getOwnPropertyDescriptor(value, "kind");
   if (!kindDescriptor || !("value" in kindDescriptor) || !kindDescriptor.enumerable) return null;
@@ -354,7 +354,7 @@ function parseBinding(value: unknown): ExtractionBinding | null {
 
 function parseBlock(value: unknown, ordinal: number): KnowledgeExtractionBlock | null {
   const record = exactRecord(value, BLOCK_FIELDS);
-  const sourceLocator = record && parseLocator(record.sourceLocator);
+  const sourceLocator = record && parseRenderSafeSourceLocator(record.sourceLocator);
   if (!record || !sourceLocator || record.ordinal !== ordinal || typeof record.kind !== "string"
     || !BLOCK_KINDS.has(record.kind) || typeof record.text !== "string" || record.text.length === 0
     || record.text.length > MAX_BLOCK_CHARS || record.text.trim().length === 0 || hasUnsafeText(record.text)
@@ -413,7 +413,7 @@ export function createKnowledgeEvidenceCitations(value: unknown): KnowledgeEvide
     const blockOrdinal = record && integer(record.blockOrdinal, 0, blocks.length - 1);
     const quoteStart = record && integer(record.quoteStart, 0, MAX_BLOCK_CHARS);
     const quoteEnd = record && integer(record.quoteEnd, 1, MAX_BLOCK_CHARS);
-    const sourceLocator = record && parseLocator(record.sourceLocator);
+    const sourceLocator = record && parseRenderSafeSourceLocator(record.sourceLocator);
     if (!record || blockOrdinal === null || quoteStart === null || quoteEnd === null || !sourceLocator
       || typeof record.blockContentHash !== "string" || !HASH_REF.test(record.blockContentHash)
       || typeof record.quote !== "string" || record.quote.length === 0 || hasUnsafeText(record.quote)

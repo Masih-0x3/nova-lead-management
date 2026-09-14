@@ -171,6 +171,10 @@ describe("remove user tenant boundary", () => {
       resource: null,
     };
     expect(authorizationOptions.policyEvaluator(policyContext)).toEqual({ allowed: true, context: policyContext });
+    for (const role of ["researcher", "reviewer", "strategist_manager", "outreach_operator", "analyst_read_only"] as const) {
+      const denied = { ...policyContext, role };
+      expect(authorizationOptions.policyEvaluator(denied)).toEqual({ allowed: false, context: denied });
+    }
     expect(contextMocks.runWithTenantContext).toHaveBeenCalledWith(
       TENANT_SESSION,
       expect.stringMatching(/^user-remove:[0-9a-f-]+$/),

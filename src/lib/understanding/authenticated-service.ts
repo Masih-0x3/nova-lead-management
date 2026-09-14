@@ -5,6 +5,7 @@ import { isProxy } from "node:util/types";
 import type { TenantSession } from "@/lib/auth";
 import { withTenantDbContext } from "@/lib/db";
 import {
+  bindRequestActorToSession,
   requireTenantPermission,
   TenantAuthorizationError,
   type TenantPolicyContext,
@@ -201,9 +202,11 @@ export async function transitionAuthenticatedUnderstandingReview(
   );
   assertScope(session, scope);
   return runWithTenantContext(session, dependencies.correlationId, () =>
-    withTenantDbContext((db) => transitionUnderstandingVersionReview(scope, request, {
-      repository: createPostgresUnderstandingRepository(db),
-    })));
+    withTenantDbContext((db) => transitionUnderstandingVersionReview(
+      scope,
+      bindRequestActorToSession(session, request),
+      { repository: createPostgresUnderstandingRepository(db) },
+    )));
 }
 
 export async function planAuthenticatedQuestionSession(

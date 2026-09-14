@@ -223,6 +223,9 @@ function contentHash(text: string): string {
 
 async function parsePdf(context: Parameters<DocumentParser["parse"]>[0]): Promise<ParserOutput> {
   if (context.signal.aborted) throw new Error("pdf parse canceled");
+  if (context.bytes.byteLength > DOCUMENT_MAX_BYTES) {
+    throw new Error("pdf exceeds the launch byte limit");
+  }
   if (context.bytes.byteLength < 8
     || !HEADER.test(LATIN1.decode(context.bytes.subarray(0, 8)))) {
     throw new Error("pdf signature is missing");

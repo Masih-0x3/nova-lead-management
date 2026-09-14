@@ -1,3 +1,5 @@
+import { isProxy } from "node:util/types";
+
 import {
   requireTenantSession as requireTenantSessionBoundary,
   type TenantSession,
@@ -410,4 +412,50 @@ export function requireTenantResource<T extends TenantProtectedResource>(
   scopeClass: TenantResourceScopeClass,
 ): T {
   return assertTenantResourceOwnership(session, resource, scopeClass);
+}
+
+/**
+ * Binds a transition request's human actor to the resolved session. A supplied
+ * actor must be exactly `{ kind: "human", actorId: session.userId }`; any other
+ * supplied actor — including another user's id or a non-human kind — is a
+ * spoofing attempt and is denied. When the field is absent the session user is
+ * attributed. Proxied or accessor-trapped requests are returned unchanged so
+ * the domain layer's own fail-closed validation still rejects them.
+ */
+export function bindRequestActorToSession<T extends { readonly actor?: unknown }>(
+  session: TenantSession,
+  request: T,
+): T {
+  if (isProxy(request)) return request;
+  let supplied: unknown;
+  try {
+    supplied = request.actor;
+  } catch {
+    return request;
+  }
+  if (supplied !== undefined && supplied !== null) {
+    try {
+      const actor = supplied as { kind?: unknown; actorId?: unknown };
+      if (
+        typeof supplied !== "object" ||
+        isProxy(supplied) ||
+        Array.isArray(supplied) ||
+        actor.kind !== "human" ||
+        actor.actorId !== session.userId
+      ) {
+        forbidden("PERMISSION_DENIED");
+      }
+    } catch (error) {
+      if (error instanceof TenantAuthorizationError) throw error;
+      forbidden("PERMISSION_DENIED");
+    }
+  }
+  try {
+    return Object.freeze({
+      ...request,
+      actor: Object.freeze({ kind: "human" as const, actorId: session.userId }),
+    });
+  } catch {
+    return request;
+  }
 }

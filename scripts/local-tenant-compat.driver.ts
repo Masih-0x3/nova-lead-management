@@ -25,7 +25,7 @@
  */
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync } from "node:fs";
 import { SCHEMA_SQL } from "@/lib/db/schema";
 import {
   COMPATIBILITY_TENANT_TABLES,
@@ -96,10 +96,26 @@ const WORKSPACE_ID = deterministicId("workspace");
 const POLICY_ID = deterministicId("policy");
 
 function stage(): void {
-  for (const suffix of ["", "-journal", "-wal", "-shm"]) {
-    rmSync(`${DB_PATH}${suffix}`, { force: true });
+  // stage() only ever creates a fresh fixture. If LOCAL_COMPAT_DB (or any of
+  // its sidecars / the snapshot path) already exists — including as a symlink
+  // — refuse before touching anything; deleting an existing file is the
+  // operator's deliberate action, never this tool's.
+  const targets = ["", "-journal", "-wal", "-shm"].map((suffix) => `${DB_PATH}${suffix}`);
+  targets.push(SNAPSHOT_PATH);
+  const existing = targets.filter((target) => {
+    try {
+      lstatSync(target);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (existing.length > 0) {
+    throw new Error(
+      `[compat] refusing to stage over existing path(s): ${existing.join(", ")} — ` +
+      "remove them deliberately or point LOCAL_COMPAT_DB at a fresh path.",
+    );
   }
-  rmSync(SNAPSHOT_PATH, { force: true });
   const db = new Database(DB_PATH);
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA_SQL);
