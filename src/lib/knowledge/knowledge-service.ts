@@ -7,6 +7,7 @@ import {
   type DocumentLifecycleState,
 } from "@/lib/documents/state-machine";
 import type { LaunchDocumentFormat } from "@/lib/documents/validation";
+import { parseRenderSafeSourceLocator } from "./evidence-citations";
 
 const CANONICAL_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -228,12 +229,9 @@ function scope(record: PlainRecord): TenantKnowledgeScope {
 }
 
 function locator(value: unknown): Readonly<Record<string, unknown>> {
-  const record = snapshotRecord(value, ["kind", "label"], ["startLine", "endLine", "row"]);
-  if (!record || (record.kind !== "line_range" && record.kind !== "row")
-    || typeof record.label !== "string" || record.label.length > 128) {
-    throw persistenceError();
-  }
-  return Object.freeze({ ...record });
+  const parsed = parseRenderSafeSourceLocator(value);
+  if (!parsed) throw persistenceError();
+  return parsed;
 }
 
 function timestamp(value: unknown): string {
