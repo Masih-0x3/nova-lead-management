@@ -111,6 +111,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Rehearsal-runner selftest (fake docker/npx, no daemon)
+        run: node --test scripts/ci-postgres-rehearsal.selftest.mjs
       - name: Provision disposable Postgres 16 + per-lane restricted roles
         run: node scripts/ci-postgres-rehearsal.mjs up provision
       - name: Run tenant-ops rehearsal lanes

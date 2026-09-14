@@ -8,9 +8,10 @@
 // its own vitest process under that lane's env; `down` removes only the
 // container this run created (label-guarded). Never touches nova-local-*.
 
-import { execFileSync, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -361,32 +362,123 @@ function log(msg) {
   console.log(`[ci-pg-rehearsal] ${msg}`);
 }
 
+// Every subprocess is bounded so a hung docker/psql/vitest cannot defeat the
+// readiness deadline or stall the lane forever.
 function sh(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
     encoding: "utf8",
     stdio: opts.pipe === false ? "inherit" : "pipe",
     input: opts.input,
     env: opts.env,
+    timeout: opts.timeout ?? 30_000,
   });
+  if (res.error) {
+    if (!opts.allowFail) {
+      throw new Error(`${cmd} ${args.join(" ")} failed: ${res.error.message}`);
+    }
+    return res;
+  }
   if (res.status !== 0 && !opts.allowFail) {
     throw new Error(`${cmd} ${args.join(" ")} failed:\n${res.stderr || res.stdout}`);
   }
   return res;
 }
 
-function containerName() {
-  return (
-    process.env.CI_PG_NAME ||
-    `nova-ci-pg-${randomBytes(4).toString("hex")}`
-  );
+// ---------- container naming, state, ownership ----------
+
+const NAME_RE = /^nova-ci-[a-z0-9][a-z0-9-]{2,60}$/;
+const PROTECTED_RE = /^nova-local/;
+
+// Owned state lets commands in later processes rejoin the container `up`
+// created without guessing names. Override for tests via CI_PG_STATE_FILE.
+const STATE_FILE =
+  process.env.CI_PG_STATE_FILE ||
+  join(tmpdir(), `nova-ci-pg-${createHash("sha256").update(ROOT).digest("hex").slice(0, 12)}.json`);
+
+function validateName(name) {
+  if (PROTECTED_RE.test(name)) {
+    throw new Error(`refusing protected nova-local-* name: ${name}`);
+  }
+  if (!NAME_RE.test(name)) {
+    throw new Error(`container name must match ${NAME_RE} (got: ${name})`);
+  }
+  return name;
 }
 
-function docker(args, allowFail = false) {
-  return sh("docker", args, { allowFail });
+let resolvedName = "";
+
+// One stable, validated name per invocation. Without CI_PG_NAME, commands
+// rejoin the owned state `up` recorded; `up` generates one fresh name. Nothing
+// silently adopts a foreign or protected container.
+function containerName() {
+  if (process.env.CI_PG_NAME) return validateName(process.env.CI_PG_NAME);
+  if (resolvedName) return resolvedName;
+  try {
+    const st = JSON.parse(readFileSync(STATE_FILE, "utf8"));
+    if (typeof st.name === "string" && st.name) return validateName(st.name);
+  } catch {
+    /* no owned state — generate below */
+  }
+  resolvedName = `nova-ci-pg-${randomBytes(4).toString("hex")}`;
+  return resolvedName;
+}
+
+function writeState(name) {
+  writeFileSync(STATE_FILE, JSON.stringify({ name, pid: process.pid, at: new Date().toISOString() }) + "\n");
+}
+
+function clearState() {
+  try {
+    unlinkSync(STATE_FILE);
+  } catch {
+    /* absent state is fine */
+  }
+}
+
+function docker(args, allowFail = false, timeout = 30_000) {
+  return sh("docker", args, { allowFail, timeout });
 }
 
 function containerExists(name) {
-  return docker(["inspect", name], true).status === 0;
+  const res = docker(["inspect", name], true);
+  return res.status === 0;
+}
+
+function ownedLabel(name) {
+  const res = docker(
+    ["inspect", "--format", '{{index .Config.Labels "nova-ci-rehearsal"}}', name],
+    true,
+  );
+  return res.status === 0 && (res.stdout || "").trim() === "1";
+}
+
+// Every command that touches a container proves ownership before any SQL or
+// state change: valid nova-ci-* name, container exists, carries our label.
+function assertOwned(name) {
+  validateName(name);
+  if (!containerExists(name)) {
+    throw new Error(`container ${name} is not running — run \`up\` first`);
+  }
+  if (!ownedLabel(name)) {
+    throw new Error(`refusing to touch ${name}: missing ${LABEL} label`);
+  }
+}
+
+// Only the process that created the container removes it on signal; adopted
+// or preexisting containers are never deleted here.
+let createdByThisProcess = false;
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    if (createdByThisProcess) {
+      try {
+        docker(["rm", "--force", containerName()], true, 15_000);
+        clearState();
+      } catch {
+        /* best-effort bounded cleanup */
+      }
+    }
+    process.exit(sig === "SIGINT" ? 130 : 143);
+  });
 }
 
 let cachedPort = "";
@@ -401,28 +493,32 @@ function containerPort(name) {
   return port;
 }
 
-function sql(name, db, input, { allowFail = false } = {}) {
+function sql(name, db, input, { allowFail = false, timeout = 300_000 } = {}) {
   const res = spawnSync(
     "docker",
     ["exec", "-i", name, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-qAt",
       "-U", "postgres", "-d", db, "-f", "-"],
-    { encoding: "utf8", input, stdio: ["pipe", "pipe", "pipe"] },
+    { encoding: "utf8", input, stdio: ["pipe", "pipe", "pipe"], timeout },
   );
+  if (res.error && !allowFail) {
+    throw new Error(`psql -d ${db} failed: ${res.error.message}`);
+  }
   if (res.status !== 0 && !allowFail) {
     throw new Error(`psql -d ${db} failed:\n${res.stderr || res.stdout}`);
   }
   return res;
 }
 
-function waitReady(name, secs = 90) {
+function waitReady(name, secs = Number(process.env.CI_PG_READY_SECS || 90)) {
   const deadline = Date.now() + secs * 1000;
   while (Date.now() < deadline) {
     const res = docker(
       ["exec", name, "psql", "-X", "-U", "postgres", "-d", "postgres", "-Atc", "SELECT 1"],
       true,
+      10_000,
     );
     if ((res.stdout || "").trim() === "1") return;
-    spawnSync("sleep", ["0.5"]);
+    spawnSync("sleep", ["0.5"], { timeout: 5_000 });
   }
   const logs = docker(["logs", name], true);
   throw new Error(
@@ -445,14 +541,23 @@ function up() {
     "--env", "POSTGRES_PASSWORD=postgres",
     "--env", "POSTGRES_DB=postgres",
     POSTGRES_16,
-  ]);
-  waitReady(name);
-  // Fail closed on anything but the pinned PostgreSQL 16 image.
-  const version = sql(name, "postgres", "SHOW server_version_num").stdout.trim();
-  if (!version.startsWith("16")) {
-    docker(["rm", "--force", name], true);
-    throw new Error(`expected PostgreSQL 16, got server_version_num=${version}`);
+  ], false, 120_000);
+  createdByThisProcess = true;
+  let version = "";
+  try {
+    waitReady(name);
+    // Fail closed on anything but the pinned PostgreSQL 16 image.
+    version = sql(name, "postgres", "SHOW server_version_num").stdout.trim();
+    if (!version.startsWith("16")) {
+      throw new Error(`expected PostgreSQL 16, got server_version_num=${version}`);
+    }
+  } catch (err) {
+    // Bounded owned cleanup: remove only the container we just created.
+    docker(["rm", "--force", name], true, 15_000);
+    createdByThisProcess = false;
+    throw err;
   }
+  writeState(name);
   log(`up: ${name} on 127.0.0.1:${containerPort(name)} (postgres ${version})`);
 }
 
@@ -500,7 +605,9 @@ function portableReplay(name, db) {
 
 function provision() {
   const name = containerName();
-  if (!containerExists(name)) throw new Error(`container ${name} is not running — run \`up\` first`);
+  // Ownership is proven before any SQL: an unrelated or unlabeled container
+  // is refused without a single write.
+  assertOwned(name);
   waitReady(name, 30);
 
   // Cluster-wide NOLOGIN placeholders + per-lane restricted runtime roles
@@ -586,6 +693,7 @@ function laneEnv(lane) {
 
 function printEnv() {
   const name = containerName();
+  assertOwned(name);
   const port = containerPort(name);
   console.log(`# L-02 tenant-ops rehearsal env for ${name} (127.0.0.1:${port})`);
   for (const lane of LANES) {
@@ -596,12 +704,11 @@ function printEnv() {
 }
 
 function run(laneIds) {
+  const name = containerName();
+  assertOwned(name);
   const wanted = laneIds.length
     ? LANES.filter((l) => laneIds.includes(l.id))
     : LANES;
-  if (laneIds.length && wanted.length !== laneIds.length) {
-    throw new Error(`unknown lane(s): ${laneIds.filter((i) => !wanted.some((l) => l.id === i)).join(", ")}`);
-  }
   const results = [];
   for (const lane of wanted) {
     const env = { ...process.env, ...laneEnv(lane) };
@@ -609,8 +716,13 @@ function run(laneIds) {
     const res = spawnSync(
       "npx",
       ["vitest", "run", ...lane.files],
-      { stdio: "inherit", env },
+      { stdio: "inherit", env, timeout: 900_000 },
     );
+    if (res.error) {
+      results.push({ id: lane.id, status: 1 });
+      log(`lane ${lane.id} FAILED (${res.error.message})`);
+      continue;
+    }
     results.push({ id: lane.id, status: res.status });
     if (res.status !== 0) log(`lane ${lane.id} FAILED (exit ${res.status})`);
   }
@@ -623,43 +735,102 @@ function run(laneIds) {
 
 function down() {
   const name = containerName();
+  validateName(name);
   if (!containerExists(name)) {
+    clearState();
     log(`down: ${name} not present — nothing to remove`);
     return;
   }
   // Label guard: only ever remove containers this orchestrator started.
-  const inspect = docker([
-    "inspect", "--format", "{{index .Config.Labels \"nova-ci-rehearsal\"}}", name,
-  ]);
-  if ((inspect.stdout || "").trim() !== "1") {
+  if (!ownedLabel(name)) {
     throw new Error(`refusing to remove ${name}: missing ${LABEL} label`);
   }
-  docker(["rm", "--force", name]);
+  docker(["rm", "--force", name], false, 30_000);
+  clearState();
   log(`down: removed ${name}`);
 }
 
 function all() {
-  up();
+  // `up` sits inside the try so a post-creation failure still reaches the
+  // owned teardown; `createdByThisProcess` keeps a preexisting/adopted
+  // container safe when `up` refuses to adopt it.
   try {
+    up();
     provision();
     run([]);
   } finally {
-    down();
+    if (createdByThisProcess) down();
   }
 }
 
-const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-const cmds = args.length ? args : ["all"];
-for (const cmd of cmds) {
-  switch (cmd) {
-    case "up": up(); break;
-    case "provision": provision(); break;
-    case "env": printEnv(); break;
-    case "run": run(cmds.filter((c) => c !== "run")); break;
-    case "down": down(); break;
-    case "all": all(); break;
-    default:
-      console.log("usage: node scripts/ci-postgres-rehearsal.mjs [up|provision|env|run [lane...]|down|all]");
-      process.exit(1);
+// ---------- CLI ----------
+
+const COMMANDS = new Set(["up", "provision", "env", "run", "down", "all"]);
+const LANE_IDS = new Set(LANES.map((l) => l.id));
+
+function usage() {
+  console.log(`usage: node scripts/ci-postgres-rehearsal.mjs [--help] <cmd>...
+
+Commands run in order:
+  up           start a uniquely named digest-pinned postgres:16 container
+  provision    replay migrations + create per-lane DBs/roles/grants
+  env          print per-lane env exports for the owned container
+  run [lane..] run all lanes, or only the listed ids (${LANES.map((l) => l.id).join(" ")})
+  down         remove the owned container (label-guarded)
+  all          up + provision + run + guaranteed down (default)
+
+Env: CI_PG_NAME (nova-ci-* name; required when rejoining a container across
+processes without owned state), CI_PG_STATE_FILE, CI_PG_READY_SECS.`);
+}
+
+function parseArgv(argv) {
+  if (argv.some((a) => a === "--help" || a === "-h")) {
+    return { help: true, cmds: [], lanes: [] };
+  }
+  const badFlags = argv.filter((a) => a.startsWith("-"));
+  if (badFlags.length) {
+    throw new Error(`unknown flag(s): ${badFlags.join(", ")} — see --help`);
+  }
+  if (argv.length === 0) return { help: false, cmds: ["all"], lanes: [] };
+  const cmds = [];
+  const lanes = [];
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i];
+    if (!COMMANDS.has(tok)) {
+      throw new Error(`unknown command: ${tok} — see --help`);
+    }
+    if (cmds.includes(tok)) {
+      throw new Error(`duplicate command: ${tok}`);
+    }
+    cmds.push(tok);
+    if (tok === "run") {
+      // Consume following non-command tokens as explicit lane ids.
+      while (i + 1 < argv.length && !COMMANDS.has(argv[i + 1])) {
+        const lane = argv[++i];
+        if (!LANE_IDS.has(lane)) throw new Error(`unknown lane: ${lane}`);
+        if (lanes.includes(lane)) throw new Error(`duplicate lane: ${lane}`);
+        lanes.push(lane);
+      }
+    }
+  }
+  if (cmds.includes("all") && cmds.length > 1) {
+    throw new Error("`all` cannot be combined with other commands");
+  }
+  return { help: false, cmds, lanes };
+}
+
+const parsed = parseArgv(process.argv.slice(2));
+if (parsed.help) {
+  usage();
+} else {
+  for (const cmd of parsed.cmds) {
+    switch (cmd) {
+      case "up": up(); break;
+      case "provision": provision(); break;
+      case "env": printEnv(); break;
+      case "run": run(parsed.lanes); break;
+      case "down": down(); break;
+      case "all": all(); break;
+    }
   }
 }
