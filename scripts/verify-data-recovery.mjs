@@ -19,16 +19,20 @@ import {
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
 // The SQLite tenant membership mutation journal is deliberately outside the
-// recovery export contract: it is local admin state (never tenant data), it is
-// excluded from the manifest-locked SQLITE_SCHEMA_V1 by its own schema tests,
-// and it must never appear in the shared PostgreSQL migrations.
+// recovery export contract: it is local admin state (never tenant data) and it
+// is excluded from the manifest-locked SQLITE_SCHEMA_V1 by its own schema
+// tests. L-02 additionally ports it as a Postgres twin (202609120010), so it
+// is also listed in POSTGRES_FOUNDATION_TABLES and the Postgres guard below
+// allows that explicit dual-homing.
 const SQLITE_LOCAL_AUXILIARY_TABLES = Object.freeze(["tenant_membership_mutation_journal"]);
 
 // Postgres-only foundation tables (agent runtime, connector runtime, source
-// policy lifecycle, document intake/extraction, worker dispatch, L-05
-// discovery/contacts/qualification) that the F-04–F-09 and L-05 migrations
-// create ahead of their recovery contracts. They hold no recovery-manifest
-// contract yet; adding one must remove it from this list.
+// policy lifecycle, document intake/extraction, worker dispatch, L-02 tenancy
+// and limits, L-03 document pipeline and knowledge claims, L-04 understanding
+// and strategy, L-05 discovery/contacts/qualification, L-06 outreach and
+// outcomes) that the F-04–F-09 and L-02–L-06 migrations create ahead of their
+// recovery contracts. They hold no recovery-manifest contract yet; adding one
+// must remove it from this list.
 const POSTGRES_FOUNDATION_TABLES = Object.freeze([
   "agent_prompt_versions",
   "agent_policy_versions",
@@ -71,6 +75,57 @@ const POSTGRES_FOUNDATION_TABLES = Object.freeze([
   "review_queue_documents",
   "review_queue_items",
   "review_queue_events",
+  // L-02 tenancy, support-access, and limit-store ops (20260912*). The
+  // membership-mutation journal is intentionally dual-homed: it remains a
+  // SQLite-local auxiliary table and is also ported as a Postgres twin by
+  // 202609120010 (see its header), so it lives in both allowlists.
+  "tenant_invitations",
+  "tenant_invitation_journal",
+  "tenant_provisioning_journal",
+  "support_access_journal",
+  "support_access_events",
+  "platform_support_principals",
+  "tenant_limit_buckets",
+  "tenant_limit_idempotency",
+  "tenant_limit_configuration",
+  "platform_limit_configuration",
+  "tenant_limit_events",
+  "tenant_membership_mutation_journal",
+  // L-03 document pipeline runtime and knowledge-claim foundation
+  // (20260913*).
+  "document_url_sources",
+  "document_url_intake_requests",
+  "document_lifecycle_events",
+  "document_deletion_requests",
+  "document_retention_evaluations",
+  "document_extraction_outputs",
+  "knowledge_evidence_items",
+  "knowledge_citations",
+  "knowledge_claims",
+  "knowledge_claim_versions",
+  "knowledge_claim_evidence_edges",
+  "knowledge_claim_review_decisions",
+  // L-04 business-understanding and strategy foundation (20260914*).
+  "business_understanding_versions",
+  "business_understanding_review_events",
+  "adaptive_question_sessions",
+  "adaptive_question_answers",
+  "icp_versions",
+  "icp_review_events",
+  "lead_play_versions",
+  "lead_play_review_events",
+  "lead_play_simulations",
+  "lead_play_simulation_reviews",
+  "lead_play_activation_states",
+  "agent_run_inputs",
+  // L-06 outreach drafts, handoffs, outcomes, suppression, and learning
+  // proposals (20260916*).
+  "outreach_draft_versions",
+  "outreach_draft_current",
+  "outreach_handoff_attempts",
+  "outcome_record_versions",
+  "suppression_records",
+  "learning_proposal_versions",
 ]);
 
 function verifyTrackedTableCoverage() {
@@ -91,8 +146,12 @@ function verifyTrackedTableCoverage() {
   assertExactTableSet(migrationTables, "supabase/migrations", {
     allowedExtra: new Set(POSTGRES_FOUNDATION_TABLES),
   });
+  // SQLite-local auxiliaries must never appear on PostgreSQL, except for
+  // tables explicitly dual-homed in POSTGRES_FOUNDATION_TABLES (L-02 ports
+  // the membership-mutation journal as a Postgres twin; see its migration
+  // header and the foundation list above).
   for (const table of SQLITE_LOCAL_AUXILIARY_TABLES) {
-    if (migrationTables.has(table)) {
+    if (migrationTables.has(table) && !POSTGRES_FOUNDATION_TABLES.includes(table)) {
       throw new Error(`supabase/migrations: SQLite-local auxiliary table ${table} must never be created on PostgreSQL`);
     }
   }
