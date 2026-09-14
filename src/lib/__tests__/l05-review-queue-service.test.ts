@@ -157,12 +157,11 @@ describe("l05 review queue service", () => {
     expect(result.queue.events[0]!.at).toBe("2026-08-30T10:00:00.000Z");
   });
 
-  it("rejects a malformed at before persisting a queue anchored at garbage", async () => {
+  it("rejects a malformed at before persisting an unused queue", async () => {
     const store = fakeStore();
     const deps = { repository: store.repository, clock: () => new Date("2026-08-30T12:00:00.000Z") };
     // Date.parse accepts this string but the engine's canonical timestamp
-    // contract does not — anchoring a new queue at the parse result would
-    // persist a queue every real event timestamp violates.
+    // contract does not. Failed validation must not create a queue.
     await expect(enqueueItem(deps, enqueueInput({ at: "12/31/2099" })))
       .rejects.toMatchObject({ code: "REVIEW_INPUT_INVALID" });
     expect(store.queues.size).toBe(0);

@@ -446,20 +446,14 @@ function dataDescriptors(value: unknown): PropertyDescriptorMap | null {
  * plain record carrying exactly two enumerable data fields,
  * `{ kind: "human", actorId: session.userId }` — anything else, including null,
  * extra keys, accessors, or a mismatched identity, is denied. A missing or
- * undefined actor is attributed to the session user. A proxied request is
- * returned unchanged for the domain layer's own native proxy rejection; every
- * other malformed container is denied here so no untrusted accessor can run.
+ * undefined actor is attributed to the session user. Malformed containers,
+ * including proxied requests, are denied here without running accessors.
  * Unknown request fields are preserved verbatim for the domain parser.
  */
 export function bindRequestActorToSession<T extends { readonly actor?: unknown }>(
   session: TenantSession,
   request: T,
 ): T {
-  try {
-    if (isProxy(request)) return request;
-  } catch {
-    return request;
-  }
   const descriptors = dataDescriptors(request);
   if (descriptors === null) forbidden("PERMISSION_DENIED");
   const actorDescriptor = descriptors.actor;

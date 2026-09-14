@@ -6,6 +6,7 @@ import type { TenantSession } from "@/lib/auth";
 import type { DbClient } from "@/lib/db";
 import type { StrategyRepository } from "@/lib/strategy/service";
 import type { UnderstandingRepository } from "@/lib/understanding/service";
+import { bindRequestActorToSession } from "@/lib/tenancy/authorize";
 
 const strategyRepository = vi.hoisted(() => ({
   current: null as StrategyRepository | null,
@@ -303,6 +304,17 @@ describe("authenticated adapters bind the actor to the resolved session", () => 
 });
 
 describe("actor binding snapshots descriptor-only data records", () => {
+  it.each([false, true])("rejects a proxied request without reading it (revoked=%s)", (revoked) => {
+    let reads = 0;
+    const request = Proxy.revocable({ actor: { kind: "human", actorId: FORGED_USER } }, {
+      get: () => { reads += 1; throw new Error("must not read proxy"); },
+    });
+    if (revoked) request.revoke();
+    expect(() => bindRequestActorToSession(session(), request.proxy))
+      .toThrow(expect.objectContaining({ status: 403, code: "PERMISSION_DENIED" }));
+    expect(reads).toBe(0);
+  });
+
   function reviewRequest(actorField: Record<string, unknown> | PropertyDescriptor) {
     const { review } = understandingInReview();
     const request: Record<string, unknown> = {

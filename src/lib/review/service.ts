@@ -139,8 +139,8 @@ export async function enqueueItem(
   // that event, preserving the event timestamp and the engine's strict
   // chronology. Existing queues retain their original creation/history.
   // `at` must satisfy the engine's canonical timestamp contract, not just
-  // Date.parse's wider grammar — otherwise a malformed value would persist a
-  // queue anchored at a date no real event can follow.
+  // Date.parse's wider grammar — reject malformed events before creating any
+  // persistent state, even if the engine would reject them later as well.
   const firstEventTime = Date.parse(at);
   if (!CANONICAL_TIMESTAMP.test(at)
     || !Number.isFinite(firstEventTime)
