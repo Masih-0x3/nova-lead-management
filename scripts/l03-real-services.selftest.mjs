@@ -9,6 +9,29 @@ import { test } from "node:test";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SECRET = "private-diagnostic-value-do-not-publish";
 
+test("every real-service container removes its anonymous volumes on exit", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "nova-l03-volume-safety-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cli = join(dir, "fake-docker");
+  const calls = join(dir, "calls.jsonl");
+  writeFileSync(cli, `#!${process.execPath}
+import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + '\\n');
+if (args.includes('inspect')) { process.stderr.write('Error: no such resource\\n'); process.exit(1); }
+if (args[0] === 'run') process.exit(7);
+process.exit(0);
+`, { mode: 0o700 });
+  const result = spawnSync(process.execPath, [join(ROOT, "scripts/l03-real-services.mjs"), "--receipt", join(dir, "receipt.json")], {
+    cwd: ROOT, env: { ...process.env, CONTAINER_CLI: cli }, encoding: "utf8", timeout: 20_000,
+  });
+  assert.equal(result.status, 1); // intentionally fail the first container start
+  const starts = readFileSync(calls, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    .filter((args) => args[0] === "run");
+  assert.ok(starts.length > 0);
+  assert.ok(starts.every((args) => args.includes("--rm")), "owned containers must not leave anonymous database/signature volumes");
+});
+
 test("failure receipts and default console output do not publish raw tool diagnostics", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "nova-l03-safety-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

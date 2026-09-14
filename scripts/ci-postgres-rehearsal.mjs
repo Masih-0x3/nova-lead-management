@@ -790,6 +790,25 @@ function down() {
   log(`down: removed ${name}`);
 }
 
+function authAudit() {
+  const name = containerName();
+  assertOwned(name);
+  const port = containerPort(name);
+  const result = spawnSync("npx", ["vitest", "run", "src/lib/__tests__/auth-audit-postgres.test.ts"], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      NOVA_AUDIT_PG_REHEARSAL: "1",
+      DATABASE_URL: `postgres://postgres:postgres@127.0.0.1:${port}/t015_audit_context_rehearsal`,
+      DATABASE_SSL: "disable",
+      NEXT_PUBLIC_APP_URL: "https://app.nova.test",
+    },
+    stdio: "inherit",
+    timeout: 300_000,
+  });
+  if (result.error || result.status !== 0) process.exitCode = 1;
+}
+
 function all() {
   // `up` sits inside the try so a post-creation failure still reaches the
   // owned teardown; `createdByThisProcess` keeps a preexisting/adopted
@@ -805,7 +824,7 @@ function all() {
 
 // ---------- CLI ----------
 
-const COMMANDS = new Set(["up", "provision", "env", "run", "down", "all"]);
+const COMMANDS = new Set(["up", "provision", "env", "run", "auth-audit", "down", "all"]);
 const LANE_IDS = new Set(LANES.map((l) => l.id));
 
 function usage() {
@@ -816,6 +835,7 @@ Commands run in order:
   provision    replay migrations + create per-lane DBs/roles/grants
   env          print per-lane env exports for the owned container
   run [lane..] run all lanes, or only the listed ids (${LANES.map((l) => l.id).join(" ")})
+  auth-audit   prove pre-tenant auth audit on the owned disposable database
   down         remove the owned container (label-guarded)
   all          up + provision + run + guaranteed down (default)
 
@@ -869,6 +889,7 @@ if (parsed.help) {
       case "provision": provision(); break;
       case "env": printEnv(); break;
       case "run": run(parsed.lanes); break;
+      case "auth-audit": authAudit(); break;
       case "down": down(); break;
       case "all": all(); break;
     }

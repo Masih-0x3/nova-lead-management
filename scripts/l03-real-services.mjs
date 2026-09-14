@@ -161,7 +161,8 @@ function runContainer(name, args, opts = {}) {
   // Every container gets the run label and a fixed unique name; owned teardown
   // sweeps by label, so nothing can leak unnamed.
   const res = cli([
-    "run", "--name", name, "--network", NETWORK,
+    "run", ...(args.includes("--rm") ? [] : ["--rm"]),
+    "--name", name, "--network", NETWORK,
     "--label", `${LABEL}=${RUN_ID}`,
     ...args,
   ], opts);

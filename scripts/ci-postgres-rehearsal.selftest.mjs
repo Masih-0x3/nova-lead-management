@@ -67,7 +67,9 @@ switch (verb) {
 const FAKE_NPX = `#!/usr/bin/env node
 require("node:fs").appendFileSync(
   process.env.FAKE_DOCKER_LOG,
-  "npx " + process.argv.slice(2).join(" ") + "\\n",
+  "npx " + process.argv.slice(2).join(" ") + "\\n" +
+  (process.env.NOVA_AUDIT_PG_REHEARSAL === "1"
+    ? "auth-audit-owned-target=" + (process.env.DATABASE_URL === "postgres://postgres:postgres@127.0.0.1:55440/t015_audit_context_rehearsal") + "\\n" : ""),
 );
 process.exit(Number(process.env.FAKE_NPX_EXIT || 0));
 `;
@@ -146,6 +148,15 @@ test("run <lane> selects that lane and does not fall through to it as a command"
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.match(logOf(env), /npx vitest run .*tenant-cutover-ops-postgres\.test\.ts/);
   assert.ok(!/unknown (command|lane)/.test(r.stderr));
+});
+
+test("auth-audit uses the owned disposable database, never an inherited application URL", () => {
+  const env = baseEnv({ DATABASE_URL: "postgres://never-use.example/customer" });
+  assert.equal(runScript(["up"], env).status, 0);
+  const result = runScript(["auth-audit"], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(logOf(env), /auth-audit-postgres\.test\.ts/);
+  assert.match(logOf(env), /auth-audit-owned-target=true/);
 });
 
 test("unknown lane id is rejected before any lane runs", () => {
