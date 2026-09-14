@@ -553,8 +553,15 @@ async function build() {
     { env: appEnv(), timeout: 900_000, inherit: true });
   throwIfShutdown();
   if (r.status !== 0) failCode("build", "NEXT_BUILD_FAILED", `next build --${bundler} exited ${r.status}`);
+  // Output-trace safety (parent d6550bf): the server NFT manifests must not
+  // bundle local databases, .env*, private keys, or rehearsal artifacts.
+  const st = await runAsync("node", [join(ROOT, "scripts", "server-traces.selftest.mjs")],
+    { env: BASE_ENV, timeout: 120_000 });
+  throwIfShutdown();
+  if (st.status !== 0) failCode("build", "SERVER_TRACES_UNSAFE", "server trace manifests include local/private files");
   receipt.environment.bundler = bundler;
-  log(`build ok (${bundler})`);
+  receipt.environment.serverTraces = "clean";
+  log(`build ok (${bundler}); server traces clean`);
 }
 
 function startApp() {
@@ -587,14 +594,17 @@ async function waitHttp(url, { expectOk = false, attempts = 90 } = {}) {
   return false;
 }
 
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 async function stopAppChild(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return "not-running";
   try { process.kill(-child.pid, "SIGTERM"); } catch { return "term-failed"; }
-  const grace = Promise.race([child.closePromise, new Promise((r) => setTimeout(r, 8000).then(() => "timeout"))]);
-  if ((await grace) === "timeout") {
+  const closed = await Promise.race([child.closePromise.then(() => true), sleepMs(8000).then(() => false)]);
+  if (!closed) {
     try { process.kill(-child.pid, "SIGKILL"); } catch { /* gone */ }
-    await Promise.race([child.closePromise, new Promise((r) => setTimeout(r, 3000))]);
-    return "sigkill";
+    const killed = await Promise.race([child.closePromise.then(() => true), sleepMs(3000).then(() => false)]);
+    // Only report stopped once the child actually closed — a live process
+    // group means cleanup is NOT verified.
+    return killed ? "sigkill" : "still-live";
   }
   return "sigterm";
 }
@@ -612,6 +622,9 @@ async function runE2E(name, spec) {
     env: {
       ...appEnv(),
       E2E_BASE_URL: CFG.appOrigin,
+      // Acceptance specs write their handoff state here (parent fb393cb) —
+      // never the checkout's e2e/.acceptance-state.json.
+      E2E_ACCEPTANCE_STATE_FILE: join(CFG.private, "acceptance-state.json"),
       // Researcher suite reuses the E2E_SUPABASE_* login vars.
       E2E_SUPABASE_EMAIL: name === "researcher" ? CREDS.researcher.email : CREDS.admin.email,
       E2E_SUPABASE_PASSWORD: name === "researcher" ? CREDS.researcher.password : CREDS.admin.password,
@@ -703,9 +716,12 @@ async function teardownOwned() {
     return r.status === 0 ? String(r.stdout || "").trim().split("\n").filter(Boolean) : null;
   };
   const found = containerNames();
-  const unowned = (found || []).filter(
-    (n) => !RUN_NAME_RE.test(n) || !CFG.containers.includes(n) || dockerLabel(n, "nova.staging.run") !== CFG.runId,
-  );
+  // null = the listing itself failed — unknown is never an empty list.
+  // Refuse destructive cleanup when we cannot prove what exists.
+  const unowned = found === null ? ["<container-listing-unverifiable>"]
+    : found.filter(
+      (n) => !RUN_NAME_RE.test(n) || !CFG.containers.includes(n) || dockerLabel(n, "nova.staging.run") !== CFG.runId,
+    );
   // Volume + network ownership must be proven BEFORE the destructive compose
   // call: a same-name resource with foreign labels, or one whose state cannot
   // be inspected at all, means we never created it — refuse, never adopt.
@@ -739,6 +755,8 @@ async function teardownOwned() {
   c.volumeRemoved = vols.length === 0;
   c.networkRemoved = nets.length === 0;
 
+  // "still-live"/"term-failed"/"error" all mean the app tree may survive —
+  // cleanup is not verified unless the child observably closed.
   const appOk = ["none", "not-running", "sigterm", "sigkill"].includes(c.appStopped);
   const clean = appOk && c.composeDown === "ok"
     && left.length === 0 && vols.length === 0 && nets.length === 0;

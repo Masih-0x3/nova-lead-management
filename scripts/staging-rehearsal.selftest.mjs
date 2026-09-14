@@ -77,6 +77,7 @@ function fixtureRoot(tag) {
 //   phaseForeign   — `ps` also prints `<run>-foreign` once `up` ran
 //   foreignVol     — `<kind> inspect <name>` reports foreign-project; ls lists it
 //   foreignNet     — same for the network
+//   psFailAfterPhase — `ps` exits 42 once the `up` phase marker exists
 function fakeDockerDir(tag, o = {}) {
   const dir = mkdtempSync(join(tmpdir(), `staging-fakedocker-${tag}-`));
   fixtures.push(dir);
@@ -86,13 +87,14 @@ function fakeDockerDir(tag, o = {}) {
   writeFileSync(join(dir, "docker"), `#!/usr/bin/env bash
 echo "$@" >> ${JSON.stringify(log)}
 if [[ "$1" == "ps" ]]; then
+  ${o.psFailAfterPhase ? `if [[ -f ${JSON.stringify(phase)} ]]; then exit 42; fi` : ""}
   printf '%s' ${JSON.stringify(o.psNames || "")}
   ${o.phaseForeign ? `if [[ -f ${JSON.stringify(phase)} && "$*" == *"${o.phaseForeign}-"* ]]; then printf '%s-foreign\\n' "${o.phaseForeign}"; fi` : ""}
   exit ${o.psExit ?? 0}
 fi
 if [[ "$1" == "compose" ]]; then
+  touch ${JSON.stringify(phase)}
   if [[ "$*" == *" up "* || "$*" == *" up" ]]; then
-    touch ${JSON.stringify(phase)}
     ${o.upGrandchild ? `sleep 60 & echo $! > ${JSON.stringify(gcpid)}` : ""}
     sleep ${o.upSleepSecs || 0}
     exit ${o.upExit || 0}
@@ -118,14 +120,52 @@ exit 0
   return { dir, log, phase, gcpid };
 }
 
+// Fake `node` + `npx` shims for the full-green pipeline probe: canned stage
+// output for the script children, and `next start` launches a REAL http
+// server (with a sleep grandchild) so the app lifecycle — health check,
+// SIGTERM stop, group teardown — is exercised for real.
+function fakeRuntimeBin(tag) {
+  const dir = mkdtempSync(join(tmpdir(), `staging-fakebin-${tag}-`));
+  fixtures.push(dir);
+  const gcpid = join(dir, "app-grandchild.pid");
+  const realNode = process.execPath;
+  writeFileSync(join(dir, "node"), `#!/usr/bin/env bash
+args="$*"
+if [[ "$args" == *"local-supabase.mjs verify"* ]]; then
+  printf '  PASS containers (3)\\n  PASS tenant (ok)\\n  PASS lease-roles (ok)\\n'
+  exit 0
+fi
+if [[ "$args" == *"local-supabase.mjs"* ]]; then exit 0; fi
+if [[ "$args" == *"seed-acceptance-tenant.mjs"* ]]; then exit 0; fi
+if [[ "$args" == *"server-traces.selftest.mjs"* ]]; then exit 0; fi
+if [[ "$args" == *"run-e2e.mjs acceptance"* ]]; then echo "  2 passed"; exit 0; fi
+if [[ "$args" == *"run-e2e.mjs auth"* && "$args" == *"--grep-invert"* ]]; then echo "  26 passed"; exit 0; fi
+if [[ "$args" == *"run-e2e.mjs auth"* && "$args" == *"--grep"* ]]; then echo "  12 passed"; exit 0; fi
+exit 0
+`, { mode: 0o755 });
+  writeFileSync(join(dir, "npx"), `#!/usr/bin/env bash
+if [[ "$*" == *"next build"* ]]; then mkdir -p .next; exit 0; fi
+if [[ "$*" == *"next start"* ]]; then
+  port=""; prev=""
+  for a in "$@"; do [[ "$prev" == "-p" ]] && port="$a"; prev="$a"; done
+  sleep 300 & echo $! > ${JSON.stringify(gcpid)}
+  ${JSON.stringify(realNode)} -e "require('http').createServer((q,s)=>{s.writeHead(200,{'content-type':'application/json'});s.end(JSON.stringify({ok:true}))}).listen($port,'127.0.0.1')" &
+  wait
+fi
+exit 0
+`, { mode: 0o755 });
+  return { dir, gcpid };
+}
+
 // Spawn the harness inside a private fixture root. Ambient NOVA_STAGING_*
 // vars are stripped so a caller's own run identity cannot leak into probes.
-function runScript(root, args, { env = {}, docker, timeout = 60_000, killAfter = null } = {}) {
+function runScript(root, args, { env = {}, docker, pathDirs = [], timeout = 60_000, killAfter = null } = {}) {
   const clean = { ...process.env };
   for (const k of Object.keys(clean)) if (k.startsWith("NOVA_STAGING_")) delete clean[k];
+  const shimPath = [docker?.dir, ...pathDirs].filter(Boolean).join(":");
   const child = spawn(process.execPath, [join(root, "scripts", "staging-rehearsal.mjs"), ...args], {
     cwd: root,
-    env: { ...clean, ...env, PATH: docker ? `${docker.dir}:${process.env.PATH}` : process.env.PATH },
+    env: { ...clean, ...env, PATH: shimPath ? `${shimPath}:${process.env.PATH}` : process.env.PATH },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "", stderr = "";
@@ -358,6 +398,58 @@ async function main() {
       && receipt?.cleanup?.verified === true
       && !existsSync(join(artDir(root, rid), "private")),
       `code=${r.code} sig=${r.sig} gcAlive=${gcAlive} log=${JSON.stringify(r.dockerLog.slice(-400))}`);
+  }
+
+  // ---- 9: docker inspection dies AFTER startup => teardown refuses ----
+  {
+    const rid = "rpsfail1";
+    const root = fixtureRoot("psfail");
+    const docker = fakeDockerDir("psfail", { upExit: 1, psFailAfterPhase: true });
+    const r = await runScript(root, ["rehearse"], {
+      docker, env: { NOVA_STAGING_RUN_ID: rid, NOVA_STAGING_DB_PORT: "55489" },
+      timeout: 60_000,
+    });
+    const receipt = readReceipt(root, rid);
+    const downed = r.dockerLog.split("\n").some((l) => l.includes(" down "));
+    ok("ps-failure-refuses-teardown", r.code !== 0
+      && !downed
+      && receipt.cleanup.composeDown === "refused"
+      && receipt.cleanup.verified === false
+      && receipt.errorCode === "CLEANUP_FAILED"
+      && existsSync(join(artDir(root, rid), "private")),
+      `code=${r.code} down=${downed} cleanup=${JSON.stringify(receipt.cleanup)}`);
+  }
+
+  // ---- 10: full-green pipeline => app stopped, cleanup verified, receipt pass ----
+  {
+    const rid = "rgreen1";
+    const root = fixtureRoot("green");
+    const docker = fakeDockerDir("green");
+    const bins = fakeRuntimeBin("green");
+    const r = await runScript(root, ["rehearse"], {
+      docker, pathDirs: [bins.dir],
+      env: { NOVA_STAGING_RUN_ID: rid, NOVA_STAGING_DB_PORT: "55488", NOVA_STAGING_APP_PORT: "55487" },
+      timeout: 60_000,
+    });
+    const receipt = readReceipt(root, rid);
+    let gcAlive = false;
+    if (existsSync(bins.gcpid)) {
+      const gpid = +readFileSync(bins.gcpid, "utf8").trim();
+      try { process.kill(gpid, 0); gcAlive = true; } catch { /* dead */ }
+      if (gcAlive) { try { process.kill(gpid, "SIGKILL"); } catch {} }
+    }
+    const e2eOk = receipt.e2e.acceptance?.passed === 2
+      && receipt.e2e.admin?.passed === 26 && receipt.e2e.researcher?.passed === 12
+      && [receipt.e2e.acceptance, receipt.e2e.admin, receipt.e2e.researcher]
+        .every((s) => s.failed === 0 && s.skipped === 0 && s.flaky === 0);
+    ok("full-green-shutdown", r.code === 0
+      && receipt.result === "pass"
+      && receipt.cleanup.appStopped === "sigterm"
+      && receipt.cleanup.verified === true
+      && receipt.cleanup.privateArtifactsRemoved === true
+      && e2eOk && !gcAlive
+      && r.dockerLog.includes("down -v"),
+      `code=${r.code} app=${receipt.cleanup.appStopped} gcAlive=${gcAlive} e2e=${JSON.stringify(receipt.e2e)} stderr=${r.stderr.slice(-200)}`);
   }
 
   for (const f of fixtures) rmSync(f, { recursive: true, force: true });
