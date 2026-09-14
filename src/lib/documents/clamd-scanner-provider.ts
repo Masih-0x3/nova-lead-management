@@ -183,13 +183,18 @@ function openClamdSession(
   const onData = (chunk: Buffer): void => {
     if (deadError) return;
     buffered = Buffer.concat([buffered, chunk]);
+    // Validate every record in the chunk before delivering any payload: a
+    // well-formed verdict must never outrun malformed or out-of-sequence
+    // trailing bytes that arrive in the same read.
+    const accepted: string[] = [];
     for (;;) {
       const newline = buffered.indexOf(0x0a);
       if (newline === -1) {
         if (buffered.byteLength > REPLY_MAX_BYTES) {
           fail(new ClamdSocketError("protocol", "clamd reply exceeded bounds"));
+          return;
         }
-        return;
+        break;
       }
       // A terminated record beyond the cap is still oversized: cap before
       // resolving so a large newline-terminated line cannot slip through.
@@ -210,16 +215,20 @@ function openClamdSession(
         return;
       }
       inflight = -1;
+      accepted.push(frame[2] as string);
+    }
+    if (deadError) return;
+    for (const payload of accepted) {
       const waiter = pending;
       if (waiter?.kind === "reply") {
         pending = null;
         waiter.cleanup();
-        waiter.resolve(frame[2] as string);
+        waiter.resolve(payload);
       } else {
         // A reply may legitimately arrive while a large INSTREAM write is
         // draining; hold it for the command's awaitReply rather than losing
         // or misattributing it.
-        ready.push(frame[2] as string);
+        ready.push(payload);
       }
     }
   };

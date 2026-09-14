@@ -19,6 +19,12 @@ import {
   reserveDocumentUpload,
   type QuarantinedDocumentVersion,
 } from "@/lib/documents";
+import {
+  executeDocumentExtraction,
+  requestDocumentExtraction,
+  type ClaimedExtractionLease,
+  type RequestDocumentExtractionInput,
+} from "@/lib/documents/pipeline-service";
 import { resolveDocumentRuntimeServices } from "@/lib/documents/runtime-services";
 
 const ENABLED = process.env.NOVA_L03_REAL_SERVICES === "1";
@@ -148,6 +154,75 @@ async function writeObject(
     mediaType,
     bytes,
   }) as Promise<{ objectKey: string }>;
+}
+
+const EXTRACTION_JOB = "88888888-8888-4888-8888-8888888888a1";
+
+/**
+ * Runs the production member request path and shapes the lease the claim RPC
+ * would return. The in-memory repository stands in for
+ * novatrade_request_document_extraction / novatrade_claim_document_extraction_job;
+ * their clean-state + clean-scan-binding + lease-generation predicates are
+ * proven on disposable Postgres by document-pipeline-l03-postgres.test.ts.
+ */
+async function extractionLease(
+  doc: string,
+  ver: string,
+  checksum: string,
+  mediaType: string,
+): Promise<ClaimedExtractionLease> {
+  const format = mediaType === "text/plain" ? "txt" : "csv";
+  const captured: { input: RequestDocumentExtractionInput | null } = {
+    input: null,
+  };
+  const request = await requestDocumentExtraction({
+    tenantId: TENANT_A,
+    workspaceId: WORKSPACE_A,
+    documentId: doc,
+    versionId: ver,
+    jobId: EXTRACTION_JOB,
+    idempotencyKey: `l03-extract-${ver.slice(-2)}`,
+    checksum,
+    scannerPolicyVersion: POLICY,
+    format,
+    mediaType,
+  }, {
+    repository: {
+      requestExtraction: async (input) => {
+        captured.input = input;
+        return {
+          kind: "queued" as const,
+          jobId: input.jobId,
+          versionId: input.versionId,
+          state: "queued" as const,
+        };
+      },
+    },
+  });
+  const persisted = captured.input;
+  if (!persisted || request.kind !== "queued") {
+    throw new Error("extraction request fixture did not queue");
+  }
+  return {
+    leaseToken: createHash("sha256").update(`lease-${EXTRACTION_JOB}`).digest("hex"),
+    jobId: EXTRACTION_JOB,
+    tenantId: TENANT_A,
+    workspaceId: WORKSPACE_A,
+    documentId: doc,
+    versionId: ver,
+    objectKey: keyOf(TENANT_A, doc, ver),
+    checksum,
+    scannerPolicyVersion: POLICY,
+    parserId: persisted.parserId,
+    parserVersion: persisted.parserVersion,
+    inputHash: persisted.inputHash,
+    attempt: 1,
+    maxAttempts: 3,
+    leaseGeneration: 1,
+    leaseExpiresAt: new Date(Date.now() + 120_000).toISOString(),
+    cancelRequested: false,
+    versionState: "clean",
+  };
 }
 
 describe.skipIf(!ENABLED)("L03 real-service rehearsal (supabase storage + clamd)", () => {
@@ -363,6 +438,105 @@ describe.skipIf(!ENABLED)("L03 real-service rehearsal (supabase storage + clamd)
       maxBytes: 1_024,
     })).rejects.toMatchObject({ code: "storage_boundary_error" });
     console.log("REAL-SVC delete -> removed:true then removed:false; read fails closed");
+  });
+
+  it("extracts cited content only after a real clean scan", async () => {
+    const services = resolveDocumentRuntimeServices(servicesEnv());
+    const doc = DOC("7a");
+    const ver = VER("7a");
+    await writeObject(services, doc, ver, CLEAN_BYTES, "text/csv");
+
+    const scan = await executeQuarantineScan(
+      quarantined(doc, ver, sha256(CLEAN_BYTES)),
+      POLICY,
+      services.scanner,
+    );
+    expect(scan.version.state).toBe("clean");
+
+    const lease = await extractionLease(doc, ver, sha256(CLEAN_BYTES), "text/csv");
+    const finalize = await executeDocumentExtraction(lease, {
+      reader: services.storage,
+    });
+    expect(
+      finalize.outcome === "complete" || finalize.outcome === "review_required",
+    ).toBe(true);
+    expect(finalize.output).not.toBeNull();
+    expect(finalize.output?.blockCount).toBeGreaterThan(0);
+    const citations = finalize.output?.citations ?? [];
+    expect(citations.length).toBeGreaterThan(0);
+    expect(citations[0].quote.length).toBeGreaterThan(0);
+    expect(citations[0].sourceLocator).toBeTruthy();
+    expect(finalize.output?.evidence?.length ?? 0).toBeGreaterThan(0);
+    console.log(
+      `REAL-SVC clean scan -> extraction outcome=${finalize.outcome} ` +
+      `blocks=${finalize.output?.blockCount} citations=${citations.length}`,
+    );
+  });
+
+  it("never reaches extraction or citations for infected or scanner-error outcomes", async () => {
+    const writer = resolveDocumentRuntimeServices(servicesEnv());
+    const doc = DOC("7b");
+    const ver = VER("7b");
+    await writeObject(writer, doc, ver, EICAR_BYTES, "text/plain");
+
+    const infected = await executeQuarantineScan(
+      quarantined(doc, ver, sha256(EICAR_BYTES)),
+      POLICY,
+      writer.scanner,
+    );
+    expect(infected.version.state).toBe("infected");
+
+    // A refused/unreachable daemon lands on the same non-clean side.
+    const deadServices = resolveDocumentRuntimeServices(
+      servicesEnv({ NOVA_CLAMD_PORT: req("L03_CLAMD_DEAD_PORT") }),
+    );
+    const errored = await executeQuarantineScan(
+      quarantined(doc, ver, sha256(EICAR_BYTES)),
+      POLICY,
+      deadServices.scanner,
+    );
+    expect(errored.version.state).toBe("scanner_error");
+
+    // The production request RPC returns an empty result (mapped to
+    // "unavailable") for any version not in clean/extraction_failed with a
+    // bound clean scan; the member path rejects with illegal_transition and
+    // no extraction job ever exists to lease or execute.
+    const unavailableRepo = {
+      requestExtraction: async () => ({ kind: "unavailable" as const }),
+    };
+    const deniedRequest = requestDocumentExtraction({
+      tenantId: TENANT_A,
+      workspaceId: WORKSPACE_A,
+      documentId: doc,
+      versionId: ver,
+      jobId: "88888888-8888-4888-8888-8888888888b1",
+      idempotencyKey: "l03-extract-denied-7b",
+      checksum: sha256(EICAR_BYTES),
+      scannerPolicyVersion: POLICY,
+      format: "txt",
+      mediaType: "text/plain",
+    }, { repository: unavailableRepo });
+    await expect(deniedRequest).rejects.toMatchObject({
+      code: "illegal_transition",
+    });
+
+    // A forged lease that reaches the executor still cannot cite: the
+    // executor re-reads the real object over HTTPS and re-verifies its
+    // checksum against the lease before parsing.
+    const forged = {
+      ...(await extractionLease(doc, ver, sha256(EICAR_BYTES), "text/plain")),
+      checksum: sha256(CLEAN_BYTES),
+    };
+    const forgedFinalize = await executeDocumentExtraction(forged, {
+      reader: writer.storage,
+    });
+    expect(forgedFinalize.outcome).toBe("error");
+    expect(forgedFinalize.errorCode).toBe("content_checksum_mismatch");
+    expect(forgedFinalize.output).toBeNull();
+    console.log(
+      "REAL-SVC infected/error -> no extraction; forged lease -> " +
+      "content_checksum_mismatch, no output",
+    );
   });
 
   it("rejects a reservation request outside the capability contract", async () => {
