@@ -32,7 +32,8 @@ type StubBehavior = Readonly<{
   /** INSTREAM verdict: ok / found / error line / hold the reply / socket games. */
   verdict:
     | "ok" | "found" | "garbage" | "hang" | "trickle" | "oversized"
-    | "early_close" | "pause_close" | "ok_then_garbage" | "found_then_garbage";
+    | "early_close" | "pause_close" | "ok_then_garbage" | "found_then_garbage"
+    | "ok_then_partial_garbage";
   signature?: string;
   /** Reply VERSION with a different engine version. */
   version?: string;
@@ -77,6 +78,7 @@ function startClamdStub(behavior: StubBehavior): Promise<StartedStub> {
     const verdictReply = () => {
       switch (behavior.verdict) {
         case "ok": socket.write(framed("stream: OK")); return;
+        case "ok_then_partial_garbage": socket.write(`${framed("stream: OK")}garbage`); return;
         case "found":
           socket.write(framed(`stream: ${behavior.signature ?? "Eicar-Test-Signature"} FOUND`));
           return;
@@ -415,6 +417,17 @@ describe("clamd scanner provider", () => {
       verdict: "error",
       reasonCode: "adapter_error",
     });
+  });
+
+  it("never reports clean when unframed trailing bytes have no newline yet", async () => {
+    const stub = await startClamdStub({ verdict: "ok_then_partial_garbage" });
+    const result = await executeQuarantineScan(
+      quarantined(CLEAN_CHECKSUM),
+      POLICY_VERSION,
+      providerFor(stub.port, CLEAN_BYTES),
+    );
+    expect(result.version.state).toBe("scanner_error");
+    expect(result.scan).toMatchObject({ verdict: "error", reasonCode: "adapter_error" });
   });
 
   it("never reports infected when FOUND shares a chunk with an out-of-sequence record", async () => {

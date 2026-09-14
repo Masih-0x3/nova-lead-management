@@ -218,6 +218,13 @@ function openClamdSession(
       accepted.push(frame[2] as string);
     }
     if (deadError) return;
+    // Once the sole in-flight reply is complete, even a partial extra record
+    // is unsolicited. Do not let its missing newline defer failure until
+    // after an already accepted clean verdict has escaped.
+    if (inflight === -1 && buffered.byteLength > 0) {
+      fail(new ClamdSocketError("protocol", "clamd sent unsolicited trailing bytes"));
+      return;
+    }
     for (const payload of accepted) {
       const waiter = pending;
       if (waiter?.kind === "reply") {
