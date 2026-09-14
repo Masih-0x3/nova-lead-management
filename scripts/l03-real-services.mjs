@@ -115,7 +115,8 @@ function resourceExists(kind, name) {
   // must not be misread as proof that a resource was removed.
   const result = cli([kind, "inspect", name], { allowFail: true });
   if (result.status === 0) return true;
-  if (result.status === 1 && /no such|no .+ found/iu.test(result.stderr || "")) return false;
+  const absent = /no such (?:container|network|resource)|(?:container|network) not found|no (?:container|network) .+ found/iu;
+  if ([1, 125].includes(result.status) && absent.test(result.stderr || "")) return false;
   throw new Error("RESOURCE_INSPECTION_FAILED");
 }
 
