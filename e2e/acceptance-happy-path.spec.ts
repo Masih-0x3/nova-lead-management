@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { BASE_URL } from "./auth-fixtures";
+import { acceptanceStatePath } from "../scripts/e2e-safety.mjs";
 import {
   ACCEPTANCE,
   apiGet,
@@ -705,9 +706,9 @@ test("L-08 happy path: invite -> evidence -> ICP/play -> discovery -> qualify ->
     // The degraded spec proves a recorded suppression dominates handoff
     // eligibility; it needs this run's approved draft + contact identifiers.
     const { writeFileSync, mkdirSync } = await import("node:fs");
-    const { join, dirname } = await import("node:path");
-    const file = join(process.cwd(), "e2e", ".acceptance-state.json");
-    mkdirSync(dirname(file), { recursive: true });
+    const { dirname } = await import("node:path");
+    const file = acceptanceStatePath();
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     writeFileSync(file, JSON.stringify({
       runNonce: RUN_NONCE,
       accountId: state.accountId,
@@ -715,6 +716,6 @@ test("L-08 happy path: invite -> evidence -> ICP/play -> discovery -> qualify ->
       contactStableKey: `contact:l08-${RUN_NONCE}`,
       draftStableKey: state.draftStableKey,
       draftVersionId: state.draftVersionId,
-    }));
+    }), { mode: 0o600 });
   });
 });

@@ -23,6 +23,8 @@ The real-service rehearsal uses a private `supabase/storage-api` deployment with
 
 ClamAV's TCP protocol provides neither authentication nor encryption. Keep the daemon on a trusted private network, pin the approved engine/policy, and establish signature update, availability, and monitoring ownership. Do not expose port 3310 publicly or disable TLS validation for the Storage client.
 
+Runtime-local SQLite files, dotenv files, Supabase development certificates, and rehearsal artifacts are excluded from Next.js deployment traces. `release:check` inspects the actual build manifests and fails if local databases, private keys, or rehearsal state are included. If the Storage client needs a custom CA bundle, provision that trust bundle separately at runtime; do not bundle the local stack's certificates or private key.
+
 Before a larger cohort, profile membership hydration, outreach draft listing, reporting outcome hydration, and understanding lineage reads with production-sized synthetic data. Batch or paginate only where measurements justify it, preserving tenant authorization and provenance validation. These are bounded operational follow-ups, not permission to restart the historical feature backlog.
 
 ## 1. Codebase Checks

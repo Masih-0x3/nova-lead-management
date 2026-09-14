@@ -1,13 +1,21 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  acceptanceStatePath,
   assertDisposableLeadFixture,
   assertE2EAuth,
   assertMutationSafety,
   buildDisposableLeadKanbanUrl,
   hasE2EAuth,
 } from "../../../scripts/e2e-safety.mjs";
+
+it("keeps a staging acceptance handoff in its explicitly isolated path", () => {
+  expect(acceptanceStatePath({ E2E_ACCEPTANCE_STATE_FILE: "staging-artifacts/run/private/state.json" }))
+    .toBe(resolve("staging-artifacts/run/private/state.json"));
+  expect(acceptanceStatePath({})).toBe(resolve("e2e/.acceptance-state.json"));
+});
 
 describe("E2E suite safety", () => {
   it("requires a complete credential pair or a storage state", () => {
