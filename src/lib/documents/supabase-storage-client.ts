@@ -280,7 +280,8 @@ export function createSupabaseStorageClient(
   if (config.tlsCaFile !== undefined) {
     if (typeof config.tlsCaFile !== "string" || !config.tlsCaFile) throw boundaryError();
     try {
-      tlsCa = readFileSync(config.tlsCaFile);
+      // This is an operator-provisioned runtime trust bundle, not a build asset.
+      tlsCa = readFileSync(/* turbopackIgnore: true */ config.tlsCaFile);
     } catch {
       throw boundaryError();
     }
