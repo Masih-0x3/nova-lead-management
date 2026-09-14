@@ -32,7 +32,7 @@ type StubBehavior = Readonly<{
   /** INSTREAM verdict: ok / found / error line / hold the reply / socket games. */
   verdict:
     | "ok" | "found" | "garbage" | "hang" | "trickle" | "oversized"
-    | "early_close" | "pause_close";
+    | "early_close" | "pause_close" | "ok_then_garbage" | "found_then_garbage";
   signature?: string;
   /** Reply VERSION with a different engine version. */
   version?: string;
@@ -99,6 +99,17 @@ function startClamdStub(behavior: StubBehavior): Promise<StartedStub> {
           return;
         }
         case "early_close": socket.destroy(); return;
+        // Same-chunk poisoning: one write carries a valid framed verdict plus
+        // a trailing malformed or out-of-sequence record. The client must
+        // validate the whole chunk before trusting the verdict.
+        case "ok_then_garbage":
+          socket.write(`${framed("stream: OK")}NOT A FRAMED RECORD\n`);
+          return;
+        case "found_then_garbage":
+          socket.write(
+            `${framed(`stream: ${behavior.signature ?? "Eicar-Test-Signature"} FOUND`)}9: stream: OK\n`,
+          );
+          return;
         case "hang": default: return; // never replies inside the scan window
       }
     };
@@ -384,6 +395,34 @@ describe("clamd scanner provider", () => {
       quarantined(CLEAN_CHECKSUM),
       POLICY_VERSION,
       providerFor(stub.port, CLEAN_BYTES),
+    );
+    expect(result.version.state).toBe("scanner_error");
+    expect(result.scan).toMatchObject({
+      verdict: "error",
+      reasonCode: "adapter_error",
+    });
+  });
+
+  it("never reports clean when the verdict shares a chunk with malformed bytes", async () => {
+    const stub = await startClamdStub({ verdict: "ok_then_garbage" });
+    const result = await executeQuarantineScan(
+      quarantined(CLEAN_CHECKSUM),
+      POLICY_VERSION,
+      providerFor(stub.port, CLEAN_BYTES),
+    );
+    expect(result.version.state).toBe("scanner_error");
+    expect(result.scan).toMatchObject({
+      verdict: "error",
+      reasonCode: "adapter_error",
+    });
+  });
+
+  it("never reports infected when FOUND shares a chunk with an out-of-sequence record", async () => {
+    const stub = await startClamdStub({ verdict: "found_then_garbage" });
+    const result = await executeQuarantineScan(
+      quarantined(EICAR_CHECKSUM),
+      POLICY_VERSION,
+      providerFor(stub.port, EICAR_BYTES),
     );
     expect(result.version.state).toBe("scanner_error");
     expect(result.scan).toMatchObject({

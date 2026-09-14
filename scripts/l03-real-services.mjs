@@ -14,6 +14,10 @@
 // Secret material (CA keys, JWTs, state) lives only in a private mkdtemp dir
 // that is removed on teardown; the receipt is the only surviving artifact and
 // contains no raw logs, no env values, and no secrets.
+//
+// clamd's wire protocol is unauthenticated and unencrypted TCP: the daemon
+// must only ever be reachable on a private network — exactly what this
+// rehearsal provisions (an owned, unpublished container network).
 
 import { spawnSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
@@ -49,7 +53,7 @@ const IMAGE = {
   node: "docker.io/library/node:24.21.0-bookworm-slim",
 };
 const BUCKET = "nova-quarantine";
-const EXPECTED_TESTS = 10;
+const EXPECTED_TESTS = 12;
 
 const CHILD_TIMEOUT_MS = {
   short: 30_000,
