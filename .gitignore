@@ -68,3 +68,6 @@ supabase/local/.env
 
 # Acceptance-suite state handoff between specs (regenerated each run)
 e2e/.acceptance-state.json
+
+# Staging rehearsal artifacts (sanitized receipt + app log)
+/staging-artifacts/
