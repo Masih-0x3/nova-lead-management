@@ -49,8 +49,6 @@ function ok(name, cond, extra = "") {
   if (cond) { passed++; console.log(`  PASS ${name}`); }
   else { failed++; console.error(`  FAIL ${name} ${extra}`); }
 }
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 // Private project root: the harness scripts + compose assets, nothing else.
 // All scenario mutations (env files, artifacts) happen inside this dir.
 function fixtureRoot(tag) {
