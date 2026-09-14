@@ -5,7 +5,6 @@ import {
   executeDocumentScan,
   persistDocumentScanResult,
 } from "@/lib/documents/intake-service";
-import { createLocalDocumentScanner } from "@/lib/documents/local-scanner-adapter";
 import {
   documentPipelineBoundScope,
   documentPipelineDiscoveryScope,
@@ -14,19 +13,8 @@ import {
   workerBodyUuid,
 } from "@/lib/documents/pipeline-worker-route";
 import { createPostgresDocumentIntakeRepository } from "@/lib/documents/postgres-intake-repository";
+import { documentRuntimeServices } from "@/lib/documents/runtime-services";
 import { applyNoStoreHeaders } from "@/lib/http-cache";
-
-const STORE_ROOT_ENV = "NOVA_DOCUMENT_STORE_ROOT";
-const BLOCKED_CHECKSUMS_ENV = "NOVA_SCANNER_BLOCKED_SHA256";
-
-function localScanner() {
-  const rootDir = process.env[STORE_ROOT_ENV]?.trim() || ".data/document-objects";
-  const blockedChecksums = (process.env[BLOCKED_CHECKSUMS_ENV] ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => /^[0-9a-f]{64}$/u.test(value));
-  return createLocalDocumentScanner({ rootDir, blockedChecksums });
-}
 
 /**
  * Claims one scan job under a discovery scope, runs the quarantine scan, then
@@ -56,7 +44,7 @@ export async function POST(request: NextRequest) {
       }
       const lease = claim.lease;
       const persistRequest = await executeDocumentScan(lease, {
-        scanner: localScanner(),
+        scanner: documentRuntimeServices().scanner,
       });
       const persisted = await context.run(
         documentPipelineBoundScope({

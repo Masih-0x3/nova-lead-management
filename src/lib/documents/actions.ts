@@ -16,7 +16,6 @@ import {
   initiateAuthenticatedDocumentIntake,
 } from "./authenticated-intake-service";
 import { DocumentIntakeError } from "./errors";
-import { createLocalDocumentStore } from "./local-storage-adapter";
 import {
   cancelDocumentExtraction,
   requestDocumentExtraction,
@@ -24,11 +23,9 @@ import {
 } from "./pipeline-service";
 import { createPostgresDocumentPipelineRepository } from "./postgres-pipeline-repository";
 import { createPostgresDocumentUrlIntakeRepository } from "./postgres-url-intake-repository";
+import { documentRuntimeServices } from "./runtime-services";
 import { intakeDocumentFromUrl } from "./url-intake-service";
 
-const STORE_ROOT_ENV = "NOVA_DOCUMENT_STORE_ROOT";
-const SIGNING_SECRET_ENV = "NOVA_DOCUMENT_SIGNING_SECRET";
-const UPLOAD_ORIGIN_ENV = "NOVA_DOCUMENT_UPLOAD_ORIGIN";
 const SCANNER_POLICY_ENV = "NOVA_SCANNER_POLICY_VERSION";
 const DEFAULT_SCANNER_POLICY_VERSION = "launch-v1";
 
@@ -97,14 +94,6 @@ function mapFailure(error: unknown): DocumentActionResult {
   return failure("UNAVAILABLE");
 }
 
-function localStore() {
-  return createLocalDocumentStore({
-    rootDir: process.env[STORE_ROOT_ENV]?.trim() || ".data/document-objects",
-    signingSecret: process.env[SIGNING_SECRET_ENV]?.trim() ?? "",
-    uploadOrigin: process.env[UPLOAD_ORIGIN_ENV]?.trim() || undefined,
-  });
-}
-
 function scannerPolicyVersion(): string {
   const configured = process.env[SCANNER_POLICY_ENV]?.trim() ?? "";
   return POLICY_VERSION.test(configured) ? configured : DEFAULT_SCANNER_POLICY_VERSION;
@@ -141,7 +130,7 @@ export async function initiateDocumentUploadAction(
       scannerPolicyVersion: scannerPolicyVersion(),
     }, {
       correlationId: `document-upload:${documentId}`,
-      storage: localStore(),
+      storage: documentRuntimeServices().storage,
     });
     return Object.freeze({
       ok: true as const,
@@ -191,7 +180,7 @@ export async function intakeDocumentFromUrlAction(
         scannerPolicyVersion: scannerPolicyVersion(),
       }, {
         repository: createPostgresDocumentUrlIntakeRepository(db),
-        writer: localStore(),
+        writer: documentRuntimeServices().storage,
       })),
     );
     const terminalState = result.kind === "failed" ? result.state
