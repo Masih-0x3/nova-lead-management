@@ -209,6 +209,19 @@ describe("createBoundedFetch (provider HTTP deadline)", () => {
     while (servers.length > 0) await servers.pop()!.close();
   });
 
+  it("preserves cancellation carried by a Request object", async () => {
+    const caller = new AbortController();
+    const request = new Request("http://127.0.0.1/unused", { signal: caller.signal });
+    const reason = new Error("request cancelled");
+    caller.abort(reason);
+    const baseFetch: typeof fetch = async (_input, init) => {
+      expect(init?.signal?.aborted).toBe(true);
+      expect(init?.signal?.reason).toBe(reason);
+      return new Response(null, { status: 204 });
+    };
+    await createBoundedFetch(60_000, baseFetch)(request);
+  });
+
   it("aborts the underlying socket at the deadline", async () => {
     const server = await startLoopback(() => { /* never respond */ });
     servers.push(server);

@@ -6,31 +6,18 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MIN_REQUEST_TIMEOUT_MS = 250;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 
-// AbortSignal.any exists in Node 20+; the fallback keeps older runtimes correct.
-function anyAbortSignal(signals: AbortSignal[]): AbortSignal {
-  if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
-  const controller = new AbortController();
-  for (const signal of signals) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      break;
-    }
-    signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
-  }
-  return controller.signal;
-}
-
 /**
  * Wraps fetch so the underlying request is genuinely aborted at a bounded
  * deadline — the socket is destroyed, not merely raced and left running. A
- * caller-provided init.signal is preserved: whichever of the deadline or the
+ * caller-provided Request/init signal is preserved: whichever of the deadline or the
  * caller signal fires first aborts the request.
  */
 export function createBoundedFetch(timeoutMs: number, baseFetch: typeof fetch = fetch): typeof fetch {
   return (input, init) => {
     const deadline = AbortSignal.timeout(timeoutMs);
-    const caller = init?.signal ?? null;
-    const signal = caller ? anyAbortSignal([deadline, caller]) : deadline;
+    const caller = init?.signal === undefined
+      ? (input instanceof Request ? input.signal : null) : init.signal;
+    const signal = caller ? AbortSignal.any([deadline, caller]) : deadline;
     return baseFetch(input, { ...init, signal });
   };
 }
