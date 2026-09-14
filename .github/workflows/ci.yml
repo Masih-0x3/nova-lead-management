@@ -67,3 +67,54 @@ jobs:
           src/lib/__tests__/tenant-worker-dispatch-foundation-postgres.test.ts
           src/lib/__tests__/l01-local-worker-routes-postgres.test.ts
           src/lib/__tests__/data-transfer-contract.test.ts
+
+  postgres-selfprovisioning-suites:
+    name: Self-provisioning disposable PostgreSQL 16 suites (L-03/L-04/L-06/L-08)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Disposable PG16 suites (each suite launches its own container)
+        env:
+          L03_PIPELINE_RUN_DISPOSABLE_TESTS: "1"
+          L04_RUN_DISPOSABLE_TESTS: "1"
+          L06_SCHEMA_RUN_DISPOSABLE_TESTS: "1"
+          L08_ACCEPTANCE_RUN_DISPOSABLE_TESTS: "1"
+        run: >-
+          npx vitest run --maxWorkers=2
+          src/lib/__tests__/document-pipeline-l03-postgres.test.ts
+          src/lib/__tests__/l04-strategy-foundation-postgres.test.ts
+          src/lib/__tests__/l06-schema-postgres.test.ts
+          src/lib/__tests__/l08-acceptance-degraded-postgres.test.ts
+      - name: Sweep leftover rehearsal containers
+        if: always()
+        run: |
+          for prefix in novatrade-l03- novatrade-l04- novatrade-l06- novatrade-l08-; do
+            for id in $(docker ps -aq --filter "name=${prefix}"); do docker rm -f "$id"; done
+          done
+
+  l02-tenant-ops-postgres:
+    name: L-02 tenant cutover/ops runtime-role proof (PostgreSQL 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI_PG_NAME: nova-ci-l02-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Provision disposable Postgres 16 + per-lane restricted roles
+        run: node scripts/ci-postgres-rehearsal.mjs up provision
+      - name: Run tenant-ops rehearsal lanes
+        run: node scripts/ci-postgres-rehearsal.mjs run
+      - name: Tear down disposable Postgres
+        if: always()
+        run: node scripts/ci-postgres-rehearsal.mjs down
