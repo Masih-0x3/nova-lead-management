@@ -112,10 +112,26 @@ All SQLite support above is explicitly bounded: one table set, one workflow (`le
 
 ### 6.3 Legacy recovery contract track (current)
 
-- **23-table contract remains binding** for `db:export:sqlite`, `db:verify:recovery`, and `db:import:supabase`.
+- **23-table contract remains binding** for `db:export:sqlite`, `db:verify:recovery`, and `db:import:supabase` (now 37 portable v3/v4 tables after the T-023/T-024/T-028 tenant-foundation expansion; still the only SQLite-lane recovery contract).
 - Protected settings columns must stay excluded; review the contract and recovery docs for exact exclusions.
 - Import is atomic by design; write operations are in one transaction with auth-reference validation.
 - Any table added in future phases is **not** part of this contract until that phase explicitly updates recovery scope.
+
+#### 6.3.1 Full-Postgres recovery expansion (approved by this lane)
+
+The recovery gap called out in rows 3–8 of the phase matrix is closed by a
+separate `novatrade-pg-recovery` v1 contract (`scripts/postgres-recovery-contract.mjs`,
+`scripts/postgres-recovery.mjs`, runbook `docs/DATA_RECOVERY_POSTGRES.md`):
+all **120** migration-created `public` tables are classified durable and are
+captured by a snapshot-consistent `pg_dump` custom archive with per-table
+canonical digests. The portable v3/v4 SQLite contract is **not** widened —
+this is the explicitly separate full-Postgres format the matrix anticipated
+("non-authoritative until contract extension is explicitly approved" → this
+extension is that approval). Auth, Storage object bytes, Vault secrets, the
+migration ledger, platform extensions, and environment secrets remain outside
+the archive and are restored by their own lanes. Coverage fails closed: a new
+migration table without an explicit classification breaks
+`verify-data-recovery.mjs` and the `coverage` command.
 
 ## 7) Compatibility horizon and explicit retirement trigger
 
