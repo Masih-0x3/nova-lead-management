@@ -10,7 +10,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -394,6 +394,7 @@ const PROTECTED_RE = /^nova-local/;
 const STATE_FILE =
   process.env.CI_PG_STATE_FILE ||
   join(tmpdir(), `nova-ci-pg-${createHash("sha256").update(ROOT).digest("hex").slice(0, 12)}.json`);
+const STATE_KIND = "nova-ci-postgres-rehearsal-v1";
 
 function validateName(name) {
   if (PROTECTED_RE.test(name)) {
@@ -407,31 +408,66 @@ function validateName(name) {
 
 let resolvedName = "";
 
+function readState() {
+  let stat;
+  try {
+    stat = lstatSync(STATE_FILE);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024
+      || (stat.mode & 0o077) !== 0
+      || (typeof process.getuid === "function" && stat.uid !== process.getuid())) {
+    throw new Error("refusing an unowned or unsafe rehearsal state file");
+  }
+  let state;
+  try {
+    state = JSON.parse(readFileSync(STATE_FILE, "utf8"));
+  } catch {
+    throw new Error("refusing an invalid rehearsal state file");
+  }
+  if (!state || state.kind !== STATE_KIND || typeof state.name !== "string") {
+    throw new Error("refusing an unowned rehearsal state file");
+  }
+  validateName(state.name);
+  return state;
+}
+
 // One stable, validated name per invocation. Without CI_PG_NAME, commands
 // rejoin the owned state `up` recorded; `up` generates one fresh name. Nothing
 // silently adopts a foreign or protected container.
 function containerName() {
-  if (process.env.CI_PG_NAME) return validateName(process.env.CI_PG_NAME);
-  if (resolvedName) return resolvedName;
-  try {
-    const st = JSON.parse(readFileSync(STATE_FILE, "utf8"));
-    if (typeof st.name === "string" && st.name) return validateName(st.name);
-  } catch {
-    /* no owned state — generate below */
+  const state = readState();
+  const selected = process.env.CI_PG_NAME || resolvedName;
+  if (selected) {
+    validateName(selected);
+    if (state && state.name !== selected) {
+      throw new Error("refusing state belonging to a different rehearsal container");
+    }
+    resolvedName = selected;
+    return selected;
   }
-  resolvedName = `nova-ci-pg-${randomBytes(4).toString("hex")}`;
+  resolvedName = state?.name ?? `nova-ci-pg-${randomBytes(4).toString("hex")}`;
   return resolvedName;
 }
 
 function writeState(name) {
-  writeFileSync(STATE_FILE, JSON.stringify({ name, pid: process.pid, at: new Date().toISOString() }) + "\n");
+  // Exclusive creation preserves any pre-existing file, including symlinks.
+  writeFileSync(STATE_FILE, JSON.stringify({ kind: STATE_KIND, name, pid: process.pid, at: new Date().toISOString() }) + "\n", {
+    flag: "wx",
+    mode: 0o600,
+  });
 }
 
-function clearState() {
+function clearState(name) {
+  const state = readState();
+  if (!state) return;
+  if (state.name !== name) throw new Error("refusing to delete another rehearsal's state");
   try {
     unlinkSync(STATE_FILE);
-  } catch {
-    /* absent state is fine */
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
   }
 }
 
@@ -472,7 +508,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
     if (createdByThisProcess) {
       try {
         docker(["rm", "--force", containerName()], true, 15_000);
-        clearState();
+        clearState(containerName());
       } catch {
         /* best-effort bounded cleanup */
       }
@@ -530,6 +566,7 @@ function waitReady(name, secs = Number(process.env.CI_PG_READY_SECS || 90)) {
 
 function up() {
   const name = containerName();
+  if (readState()) throw new Error("owned rehearsal state already exists; run down before starting a new container");
   if (containerExists(name)) {
     throw new Error(`container ${name} already exists — refusing to adopt it`);
   }
@@ -544,6 +581,7 @@ function up() {
   ], false, 120_000);
   createdByThisProcess = true;
   let version = "";
+  let stateWritten = false;
   try {
     waitReady(name);
     // Fail closed on anything but the pinned PostgreSQL 16 image.
@@ -551,14 +589,16 @@ function up() {
     if (!version.startsWith("16")) {
       throw new Error(`expected PostgreSQL 16, got server_version_num=${version}`);
     }
+    writeState(name);
+    stateWritten = true;
+    log(`up: ${name} on 127.0.0.1:${containerPort(name)} (postgres ${version})`);
   } catch (err) {
     // Bounded owned cleanup: remove only the container we just created.
     docker(["rm", "--force", name], true, 15_000);
+    if (stateWritten) clearState(name);
     createdByThisProcess = false;
     throw err;
   }
-  writeState(name);
-  log(`up: ${name} on 127.0.0.1:${containerPort(name)} (postgres ${version})`);
 }
 
 function portableReplay(name, db) {
@@ -737,7 +777,7 @@ function down() {
   const name = containerName();
   validateName(name);
   if (!containerExists(name)) {
-    clearState();
+    clearState(name);
     log(`down: ${name} not present — nothing to remove`);
     return;
   }
@@ -746,7 +786,7 @@ function down() {
     throw new Error(`refusing to remove ${name}: missing ${LABEL} label`);
   }
   docker(["rm", "--force", name], false, 30_000);
-  clearState();
+  clearState(name);
   log(`down: removed ${name}`);
 }
 

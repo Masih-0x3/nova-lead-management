@@ -6,13 +6,17 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "ci-postgres-rehearsal.mjs");
+const fixtureDirs = new Set();
+after(() => {
+  for (const dir of fixtureDirs) rmSync(dir, { recursive: true, force: true });
+});
 
 const FAKE_DOCKER = `#!/usr/bin/env node
 // State-machine fake docker. State: <FAKE_DOCKER_STATE>.created holds the
@@ -70,6 +74,7 @@ process.exit(Number(process.env.FAKE_NPX_EXIT || 0));
 
 function baseEnv(over = {}) {
   const dir = mkdtempSync(join(tmpdir(), "ci-pg-selftest-"));
+  fixtureDirs.add(dir);
   const bin = join(dir, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "docker"), FAKE_DOCKER, { mode: 0o755 });
@@ -199,4 +204,33 @@ test("all leaves no container or state behind on success", () => {
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.equal(existsSync(createdFile(env)), false);
   assert.equal(existsSync(env.CI_PG_STATE_FILE), false);
+});
+
+test("down preserves an unowned state file", () => {
+  const env = baseEnv({ CI_PG_NAME: "nova-ci-parent-state-probe" });
+  writeFileSync(env.CI_PG_STATE_FILE, "important user configuration\n");
+  const r = runScript(["down"], env);
+  assert.notEqual(r.status, 0);
+  assert.equal(readFileSync(env.CI_PG_STATE_FILE, "utf8"), "important user configuration\n");
+  assert.equal(logOf(env), "");
+});
+
+test("up preserves an unowned state file", () => {
+  const env = baseEnv({ CI_PG_NAME: "nova-ci-parent-state-probe" });
+  writeFileSync(env.CI_PG_STATE_FILE, "important user configuration\n");
+  const r = runScript(["up"], env);
+  assert.notEqual(r.status, 0);
+  assert.equal(readFileSync(env.CI_PG_STATE_FILE, "utf8"), "important user configuration\n");
+  assert.equal(logOf(env), "");
+});
+
+test("up refuses a symlink state file without modifying its target", () => {
+  const env = baseEnv({ CI_PG_NAME: "nova-ci-parent-state-probe" });
+  const target = join(dirname(env.CI_PG_STATE_FILE), "user-data.json");
+  writeFileSync(target, "important user configuration\n");
+  symlinkSync(target, env.CI_PG_STATE_FILE);
+  const r = runScript(["up"], env);
+  assert.notEqual(r.status, 0);
+  assert.equal(readFileSync(target, "utf8"), "important user configuration\n");
+  assert.equal(logOf(env), "");
 });
