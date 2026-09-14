@@ -10,7 +10,25 @@ npx playwright install chromium
 npm run release:check
 ```
 
-`release:check` runs TypeScript no-emit, ESLint, the platform-appropriate Vitest suite, a production build, and the public read-only Playwright project. On Windows that is the full Vitest suite. On other platforms it excludes the three tests that transitively require the accepted Windows/NTFS finalization boundary. The browser pass starts the built app on a temporary loopback port and never enables authenticated or mutating specs.
+`release:check` runs TypeScript no-emit, ESLint, recovery-contract/schema verification, the platform-appropriate Vitest suite, a production build, deployment-trace safety, and the public read-only Playwright project. On Windows that is the full Vitest suite. On other platforms it excludes the three tests that transitively require the accepted Windows/NTFS finalization boundary. The browser pass starts the built app on a temporary loopback port and never enables authenticated or mutating specs.
+
+## Current release and development entry points
+
+For the release rehearsal, use [STAGING.md](STAGING.md): `node scripts/staging-rehearsal.mjs rehearse` creates a fresh isolated Supabase stack, uses a production build and separate role identities, and verifies owned cleanup. It must not reuse development databases or upload private auth state. The GitHub `staging` environment records this ephemeral CI run; there is no permanent public staging URL.
+
+For a **fresh development checkout**, `node scripts/local-supabase.mjs all` bootstraps the persistent local stack and generates `.env.local`. Preserve any existing operator configuration and database state before running the full bootstrap. `node scripts/local-supabase.mjs up` resumes an existing stack. The default persistent endpoints are PostgreSQL `127.0.0.1:5433`, Supabase gateway `127.0.0.1:54321`, and the application `http://localhost:3000`; keep the canonical app origin consistent for auth cookies. `down --clear` deletes local volumes and is not a routine cleanup command.
+
+Additional real-integration lanes (all on Node 24):
+
+```bash
+node scripts/ci-postgres-rehearsal.mjs all
+PG_RECOVERY_RUN_DISPOSABLE_TESTS=1 npx vitest run src/lib/__tests__/postgres-recovery-contract.test.ts src/lib/__tests__/postgres-recovery-rehearsal.test.ts
+node scripts/l03-real-services.mjs
+```
+
+These prove different boundaries: restricted tenant-operation roles, native 120-table public-schema backup/restore, and private Storage/ClamAV respectively. A gated skip is not a pass. The frozen portable JSON recovery format still covers only 37 legacy tables; Auth, object bytes, Vault, and encryption keys need separate recovery plans.
+
+The detailed lane descriptions below are operator references, not a new task backlog. Use the [lean finish plan](plans/2026-08-29-lean-finish-plan.md) for current release status.
 
 ## Playwright lanes
 
@@ -48,7 +66,7 @@ The public project is release evidence for public rendering only. It does not pr
 ## L-01 local worker route rehearsal
 
 The five tenant worker routes are proven end to end by the env-gated lane
-`src/lib/__tests__/l01-local-worker-routes-postgres.test.ts`. It replays the 63
+`src/lib/__tests__/l01-local-worker-routes-postgres.test.ts`. It replays 89 of the 91
 portable migrations on a disposable PostgreSQL 16 database, seeds a tenant
 foundation, provisions restricted `l01_lease_issuer`/`l01_lease_resolver` roles
 from the URL credentials (creating and dropping them itself), and drives every
