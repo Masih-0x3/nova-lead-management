@@ -23,6 +23,7 @@ export async function requestPasswordResetAction(formData: FormData) {
       category: "auth",
       severity: "error",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "missing_auth_config" },
     });
     redirect("/forgot-password?error=missing_config");
@@ -39,6 +40,7 @@ export async function requestPasswordResetAction(formData: FormData) {
       category: "auth",
       severity: "warn",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "invalid_email" },
     });
     redirect("/forgot-password?error=invalid_email");
@@ -60,6 +62,7 @@ export async function requestPasswordResetAction(formData: FormData) {
       category: "auth",
       severity: "warn",
       entityType: "auth",
+      scope: "platform",
       actor: { email: parsed.data.email },
       metadata: { email: parsed.data.email, reason: "supabase_reset_error", error: error.message },
     });
@@ -71,6 +74,7 @@ export async function requestPasswordResetAction(formData: FormData) {
     category: "auth",
     severity: "info",
     entityType: "auth",
+    scope: "platform",
     actor: { email: parsed.data.email },
     metadata: { email: parsed.data.email, redirectTo },
   });
