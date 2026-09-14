@@ -234,9 +234,13 @@ async function authorizedTenantSession(
   const tenantSession = await requireTenantPermission(selector, permission, {
     action,
     // Compatibility remains conditional on the independently resolved legacy
-    // administration boundary. The identities are correlated immediately
-    // below before any target lookup or side effect.
-    policyEvaluator: (context) => ({ allowed: actorUserId.length > 0, context }),
+    // administration boundary and the canonical conservative conditional rule
+    // (owner/admin only). The identities are correlated immediately below
+    // before any target lookup or side effect.
+    policyEvaluator: (context) => ({
+      allowed: actorUserId.length > 0 && (context.role === "owner" || context.role === "admin"),
+      context,
+    }),
   });
   if (actorUserId !== tenantSession.userId) {
     throw new TenantAuthorizationError(403, "TENANT_SCOPE_MISMATCH");
