@@ -11,7 +11,7 @@ import { countWorkbookRows } from "@/lib/knowledge/parsers/ooxml";
 import { countPdfPages } from "@/lib/knowledge/parsers/pdf";
 import { createDocumentParserRegistry } from "@/lib/knowledge/parsers/registry";
 import { readZipEntries } from "@/lib/knowledge/parsers/zip";
-import type { LaunchDocumentFormat } from "@/lib/documents/validation";
+import { DOCUMENT_MAX_BYTES, type LaunchDocumentFormat } from "@/lib/documents/validation";
 
 const TENANT_ID = "00000000-0000-4000-8000-0000000000b1";
 const WORKSPACE_ID = "10000000-0000-4000-8000-0000000000b1";
@@ -350,5 +350,29 @@ describe("binary-format eligibility and registry boundaries", () => {
       bytes: fixture,
     });
     expect(result).toEqual({ ok: false, code: "SIGNATURE_MISMATCH" });
+  });
+
+  it("rejects oversized bytes at the registry boundary and inside the pdf parser", async () => {
+    const { PDF_DOCUMENT_PARSER } = await import("@/lib/knowledge/parsers/pdf");
+    const registry = createDocumentParserRegistry([PDF_DOCUMENT_PARSER]);
+    const oversized = new Uint8Array(DOCUMENT_MAX_BYTES + 1);
+    oversized.set(new TextEncoder().encode("%PDF-1.7"), 0);
+    const checksum = createHash("sha256").update(oversized).digest("hex");
+    await expect(registry.parse({
+      version: 1,
+      documentVersionId: VERSION_ID,
+      checksum,
+      format: "pdf",
+      mediaType: "application/pdf",
+      bytes: oversized,
+    })).resolves.toEqual({ ok: false, code: "MALFORMED_REQUEST" });
+    await expect(PDF_DOCUMENT_PARSER.parse({
+      documentVersionId: VERSION_ID,
+      checksum,
+      format: "pdf",
+      mediaType: "application/pdf",
+      bytes: oversized,
+      signal: new AbortController().signal,
+    })).rejects.toThrow("pdf exceeds the launch byte limit");
   });
 });
