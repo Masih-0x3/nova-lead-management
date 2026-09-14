@@ -1016,12 +1016,16 @@ export async function transitionLeadPlayActivationState(
 
     let storedState = await dependencies.repository.getActivationState(scope, request.stableKey);
     if (storedState === null) {
+      // The initial state is anchored to the persisted play version's creation
+      // timestamp — the same anchor the strategy page uses for its synthetic
+      // pre-activation state — so a UI-computed expectedStateHash matches, and
+      // the first transition timestamp is strictly after createdAt.
       const created = createLeadPlayActivationState({
         version: LEAD_PLAY_ACTIVATION_VERSION,
         tenantId: scope.tenantId,
         workspaceId: scope.workspaceId,
         stableKey: request.stableKey,
-        createdAt: (dependencies.clock ?? systemStrategyClock).now(),
+        createdAt: play.createdAt,
       });
       if (!created.ok) return fail("MALFORMED_INPUT");
       const record: StoredLeadPlayActivation = Object.freeze({
