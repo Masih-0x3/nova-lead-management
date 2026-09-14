@@ -5,6 +5,7 @@ import { isProxy } from "node:util/types";
 import type { TenantSession } from "@/lib/auth";
 import { withTenantDbContext } from "@/lib/db";
 import {
+  bindRequestActorToSession,
   requireTenantPermission,
   TenantAuthorizationError,
   type TenantPolicyContext,
@@ -169,10 +170,14 @@ export async function transitionAuthenticatedIcpReview(
     dependencies,
   );
   return runWithTenantContext(session, dependencies.correlationId, () =>
-    withTenantDbContext((db) => transitionIcpVersionReview(scope, request, {
-      repository: createPostgresStrategyRepository(db),
-      understanding: createPostgresUnderstandingRepository(db),
-    })));
+    withTenantDbContext((db) => transitionIcpVersionReview(
+      scope,
+      bindRequestActorToSession(session, request),
+      {
+        repository: createPostgresStrategyRepository(db),
+        understanding: createPostgresUnderstandingRepository(db),
+      },
+    )));
 }
 
 export async function createAuthenticatedLeadPlayVersion(
@@ -224,10 +229,14 @@ export async function transitionAuthenticatedLeadPlayReview(
     dependencies,
   );
   return runWithTenantContext(session, dependencies.correlationId, () =>
-    withTenantDbContext((db) => transitionLeadPlayVersionReview(scope, request, {
-      repository: createPostgresStrategyRepository(db),
-      understanding: createPostgresUnderstandingRepository(db),
-    })));
+    withTenantDbContext((db) => transitionLeadPlayVersionReview(
+      scope,
+      bindRequestActorToSession(session, request),
+      {
+        repository: createPostgresStrategyRepository(db),
+        understanding: createPostgresUnderstandingRepository(db),
+      },
+    )));
 }
 
 export async function simulateAuthenticatedLeadPlay(
@@ -252,10 +261,14 @@ export async function reviewAuthenticatedLeadPlaySimulation(
   const { session, scope } = await authorize(
     rawScope, "play:approve", "play:simulation-review", dependencies);
   return runWithTenantContext(session, dependencies.correlationId, () =>
-    withTenantDbContext((db) => reviewLeadPlaySimulationEligibilityDecision(scope, request, {
-      repository: createPostgresStrategyRepository(db),
-      understanding: createPostgresUnderstandingRepository(db),
-    })));
+    withTenantDbContext((db) => reviewLeadPlaySimulationEligibilityDecision(
+      scope,
+      bindRequestActorToSession(session, request),
+      {
+        repository: createPostgresStrategyRepository(db),
+        understanding: createPostgresUnderstandingRepository(db),
+      },
+    )));
 }
 
 export async function transitionAuthenticatedLeadPlayActivation(
@@ -266,10 +279,14 @@ export async function transitionAuthenticatedLeadPlayActivation(
   const { session, scope } = await authorize(
     rawScope, "play:activate", `play:${request?.action ?? "activation"}`, dependencies);
   return runWithTenantContext(session, dependencies.correlationId, () =>
-    withTenantDbContext((db) => transitionLeadPlayActivationState(scope, request, {
-      repository: createPostgresStrategyRepository(db),
-      understanding: createPostgresUnderstandingRepository(db),
-    })));
+    withTenantDbContext((db) => transitionLeadPlayActivationState(
+      scope,
+      bindRequestActorToSession(session, request),
+      {
+        repository: createPostgresStrategyRepository(db),
+        understanding: createPostgresUnderstandingRepository(db),
+      },
+    )));
 }
 
 export async function getAuthenticatedLeadPlayActivation(
