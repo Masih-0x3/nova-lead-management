@@ -106,6 +106,15 @@ function cli(args, opts = {}) {
   return res;
 }
 
+function resourceExists(kind, name) {
+  // `exists` is Podman-only. Docker returns "unknown command" for it, which
+  // must not be misread as proof that a resource was removed.
+  const result = cli([kind, "inspect", name], { allowFail: true });
+  if (result.status === 0) return true;
+  if (result.status === 1 && /no such|no .+ found/iu.test(result.stderr || "")) return false;
+  throw new Error("RESOURCE_INSPECTION_FAILED");
+}
+
 // ---------- run state ----------
 
 const state = {
@@ -187,11 +196,11 @@ function ensureCerts() {
 
 function up() {
   for (const name of Object.values(NAMES)) {
-    if (cli(["container", "exists", name], { allowFail: true }).status === 0) {
+    if (resourceExists("container", name)) {
       throw new Error(`refusing to adopt pre-existing container ${name}`);
     }
   }
-  if (cli(["network", "exists", NETWORK], { allowFail: true }).status === 0) {
+  if (resourceExists("network", NETWORK)) {
     throw new Error(`refusing to adopt pre-existing network ${NETWORK}`);
   }
 
@@ -312,9 +321,6 @@ function test({ clamdVersion }) {
     "src/lib/__tests__/document-l03-real-services.test.ts",
   ], { timeoutMs: CHILD_TIMEOUT_MS.vitest, allowFail: true });
 
-  const markers = (result.stdout ?? "")
-    .split("\n")
-    .filter((line) => /^REAL-SVC [ -~]{0,300}$/u.test(line));
   if (DEBUG && result.stdout) process.stdout.write(sanitize(result.stdout) + "\n");
 
   let report = null;
@@ -327,9 +333,6 @@ function test({ clamdVersion }) {
       (file.assertionResults ?? []).map((a) => ({
         name: String(a.fullName ?? a.title ?? "").slice(0, 200),
         status: String(a.status),
-        failure: (a.failureMessages ?? [])
-          .map((m) => sanitize(m).slice(0, 300))
-          .join(" | "),
       })))
     : [];
   const passed = tests.filter((t) => t.status === "passed").length;
@@ -337,7 +340,6 @@ function test({ clamdVersion }) {
   const skipped = tests.filter((t) => t.status !== "passed" && t.status !== "failed").length;
   return {
     cliStatus: result.status,
-    markers,
     tests,
     passed,
     failed,
@@ -382,7 +384,7 @@ function down() {
     ["ps", "-aq", "--filter", `label=${LABEL}=${RUN_ID}`],
     { allowFail: true },
   ).stdout.split("\n").map((s) => s.trim()).filter(Boolean);
-  const networkLeft = cli(["network", "exists", NETWORK], { allowFail: true }).status === 0;
+  const networkLeft = resourceExists("network", NETWORK);
   const dirLeft = state.dir ? existsSync(state.dir) : false;
   const verified = problems.length === 0 && remaining.length === 0 && !networkLeft && !dirLeft;
   return {
@@ -475,11 +477,12 @@ async function main() {
   process.on("SIGINT", () => onSignal("SIGINT"));
   process.on("SIGTERM", () => onSignal("SIGTERM"));
 
+  let phase = "stack";
   try {
     const { clamdVersion } = up();
     receipt.clamdVersion = clamdVersion;
+    phase = "tests";
     const outcome = test({ clamdVersion });
-    receipt.markers = outcome.markers;
     receipt.tests = {
       total: outcome.tests.length,
       passed: outcome.passed,
@@ -488,7 +491,7 @@ async function main() {
       items: outcome.tests.map(({ name, status }) => ({ name, status })),
     };
     for (const t of outcome.tests) {
-      if (t.status === "failed" && t.failure) receipt.failures.push(`${t.name}: ${t.failure}`);
+      if (t.status === "failed") receipt.failures.push("TEST_FAILED");
     }
     const countsOk = outcome.passed === EXPECTED_TESTS &&
       outcome.failed === 0 && outcome.skipped === 0 &&
@@ -506,13 +509,16 @@ async function main() {
     if (outcome.cliStatus === 0 && countsOk && !outcome.timedOut) {
       receipt.result = "pass";
     }
-  } catch (error) {
-    receipt.failures.push(sanitize(error.message ?? String(error)));
+  } catch {
+    // Provider/tool diagnostics can echo arbitrary credentials or object data,
+    // even after pattern redaction. Publish only known phase codes; test names
+    // and statuses already identify the failing checks without their raw diff.
+    receipt.failures.push(phase === "stack" ? "STACK_FAILED" : "TEST_EXECUTION_FAILED");
   } finally {
     try {
       receipt.cleanup = down();
-    } catch (error) {
-      receipt.cleanup = { verified: false, problems: [sanitize(error.message ?? String(error))] };
+    } catch {
+      receipt.cleanup = { verified: false, problems: ["CLEANUP_INSPECTION_FAILED"] };
     }
     if (!receipt.cleanup.verified) {
       receipt.result = "fail";
