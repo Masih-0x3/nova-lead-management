@@ -133,7 +133,16 @@ export async function enqueueItem(
     : typeof rawInput.at === "string" ? rawInput.at
       : (() => { throw invalid("at is malformed"); })();
 
-  const { queue, queueSha256 } = await getOrCreateQueue(deps, { tenantId, workspaceId });
+  // A first event can be stamped by its producer before this lazy queue is
+  // persisted (or in the same millisecond). Anchor a new empty log before
+  // that event, preserving the event timestamp and the engine's strict
+  // chronology. Existing queues retain their original creation/history.
+  const firstEventTime = Date.parse(at);
+  if (!Number.isFinite(firstEventTime)) throw invalid("at is malformed");
+  const { queue, queueSha256 } = await getOrCreateQueue({
+    ...deps,
+    clock: () => new Date(Math.min(Date.parse(nowIso(deps.clock)), firstEventTime - 1)),
+  }, { tenantId, workspaceId });
   const enqueued = enqueueReviewQueueItem({
     version: 1, tenantId, workspaceId,
     current: queue,
