@@ -7,22 +7,46 @@
 
 import { execFileSync, execSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, chmodSync } from "node:fs";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STACK_DIR = join(ROOT, "supabase", "local");
 const COMPOSE = join(STACK_DIR, "compose.yml");
-const CERTS_DIR = join(STACK_DIR, "certs");
-const STACK_ENV = join(STACK_DIR, ".env");
-const ENV_LOCAL = join(ROOT, ".env.local");
 const MIGRATIONS_DIR = join(ROOT, "supabase", "migrations");
 
-const DB_CONTAINER = "nova-local-db";
-const GATEWAY_URL = "http://127.0.0.1:54321";
-const DB_PORT = 5433;
+// `local` (default) is the developer stack; `staging` is the disposable
+// rehearsal profile driven by scripts/staging-rehearsal.mjs — same compose
+// file and lifecycle code, distinct containers/ports/env/certs/project so the
+// two stacks can coexist without touching each other.
+const PROFILE = process.env.NOVA_STACK_PROFILE === "staging" ? "staging" : "local";
+// staging-rehearsal.mjs overrides names/ports/paths per run so every rehearsal
+// owns unique resources; defaults keep local + prior staging behavior intact.
+const CERTS_DIR = process.env.NOVA_CERTS_DIR || (PROFILE === "staging"
+  ? join(tmpdir(), `nova-staging-certs-${createHash("sha256").update(ROOT).digest("hex").slice(0, 8)}`)
+  : join(STACK_DIR, "certs"));
+const STACK_ENV = process.env.NOVA_STACK_ENV_FILE
+  || join(STACK_DIR, PROFILE === "staging" ? ".env.staging" : ".env");
+const ENV_LOCAL = process.env.NOVA_APP_ENV_FILE
+  || join(ROOT, PROFILE === "staging" ? ".env.staging.local" : ".env.local");
+const COMPOSE_PROJECT = process.env.NOVA_COMPOSE_PROJECT
+  || (PROFILE === "staging" ? "nova-staging-supabase" : "nova-local-supabase");
+
+const DB_CONTAINER = process.env.NOVA_DB_CONTAINER || (PROFILE === "staging" ? "nova-staging-db" : "nova-local-db");
+const AUTH_CONTAINER = process.env.NOVA_AUTH_CONTAINER || (PROFILE === "staging" ? "nova-staging-auth" : "nova-local-auth");
+const GATEWAY_CONTAINER = process.env.NOVA_GATEWAY_CONTAINER || (PROFILE === "staging" ? "nova-staging-gateway" : "nova-local-gateway");
+const TESTDB_CONTAINER = process.env.NOVA_TESTDB_CONTAINER || (PROFILE === "staging" ? "nova-staging-testdb" : "nova-local-testdb");
+const DB_PORT = +(process.env.NOVA_DB_PORT || (PROFILE === "staging" ? 55433 : 5433));
+const GATEWAY_PORT = +(process.env.NOVA_GATEWAY_PORT || (PROFILE === "staging" ? 55421 : 54321));
+const TESTDB_PORT = +(process.env.NOVA_TESTDB_PORT || (PROFILE === "staging" ? 55434 : 5434));
+const GATEWAY_URL = process.env.NOVA_GATEWAY_URL || `http://127.0.0.1:${GATEWAY_PORT}`;
 const DB_SUPER_URL = `postgresql://postgres:postgres@127.0.0.1:${DB_PORT}/postgres`;
+const APP_ORIGIN = process.env.NOVA_APP_ORIGIN || "http://localhost:3000";
+// Staging never starts the disposable testdb service — its PG16 cluster backs
+// the *-postgres.test.ts lanes, not the staging surface.
+const UP_SERVICES = PROFILE === "staging" ? ["db", "auth", "gateway"] : [];
 // Canonical lease role names owned by scripts/seed-local-tenant.mjs.
 const CANONICAL_ISSUER_ROLE = "novatrade_worker_lease_issuer";
 const CANONICAL_RESOLVER_ROLE = "novatrade_worker_lease_resolver";
@@ -41,7 +65,7 @@ function sh(cmd, args, opts = {}) {
 }
 
 function compose(args, opts = {}) {
-  return sh("docker", ["compose", "-f", COMPOSE, "--env-file", STACK_ENV, ...args], opts);
+  return sh("docker", ["compose", "-f", COMPOSE, "-p", COMPOSE_PROJECT, "--env-file", STACK_ENV, ...args], opts);
 }
 
 function log(msg) { console.log(`[local-supabase] ${msg}`); }
@@ -69,20 +93,41 @@ function mintJwt(secret, role) {
 function ensureEnv() {
   // Stack env (JWT secret for gotrue)
   let stackEnv = parseEnvFile(STACK_ENV);
-  if (!stackEnv.NOVA_LOCAL_JWT_SECRET) {
+  const generatedSecret = !stackEnv.NOVA_LOCAL_JWT_SECRET;
+  if (generatedSecret) {
     stackEnv.NOVA_LOCAL_JWT_SECRET = `nova-local-${randomBytes(24).toString("hex")}`;
-    mkdirSync(STACK_DIR, { recursive: true });
-    writeFileSync(STACK_ENV, `NOVA_LOCAL_JWT_SECRET=${stackEnv.NOVA_LOCAL_JWT_SECRET}\n`, { mode: 0o600 });
-    log("generated local JWT secret in supabase/local/.env");
+    log(`generated ${PROFILE} JWT secret in ${STACK_ENV}`);
   }
   const secret = stackEnv.NOVA_LOCAL_JWT_SECRET;
+  if (PROFILE === "staging") {
+    // Staging's stack env is fully self-describing: compose interpolation
+    // reads container names/ports/certs/app-origin from this file alone.
+    mkdirSync(STACK_DIR, { recursive: true });
+    writeFileSync(STACK_ENV, [
+      `NOVA_LOCAL_JWT_SECRET=${secret}`,
+      `NOVA_DB_CONTAINER=${DB_CONTAINER}`,
+      `NOVA_AUTH_CONTAINER=${AUTH_CONTAINER}`,
+      `NOVA_GATEWAY_CONTAINER=${GATEWAY_CONTAINER}`,
+      `NOVA_TESTDB_CONTAINER=${TESTDB_CONTAINER}`,
+      `NOVA_DB_PORT=${DB_PORT}`,
+      `NOVA_GATEWAY_PORT=${GATEWAY_PORT}`,
+      `NOVA_TESTDB_PORT=${TESTDB_PORT}`,
+      `NOVA_GATEWAY_URL=${GATEWAY_URL}`,
+      `NOVA_CERTS_DIR=${CERTS_DIR}`,
+      `NOVA_APP_ORIGIN=${APP_ORIGIN}`,
+      "",
+    ].join("\n"), { mode: 0o600 });
+  } else if (generatedSecret) {
+    mkdirSync(STACK_DIR, { recursive: true });
+    writeFileSync(STACK_ENV, `NOVA_LOCAL_JWT_SECRET=${secret}\n`, { mode: 0o600 });
+  }
 
   // App env
   const env = parseEnvFile(ENV_LOCAL);
   const defaults = {
     DATABASE_URL: DB_SUPER_URL,
     POSTGRES_MAX_CONNECTIONS: "4",
-    NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+    NEXT_PUBLIC_APP_URL: APP_ORIGIN,
     NEXT_PUBLIC_SUPABASE_URL: GATEWAY_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: mintJwt(secret, "anon"),
     SUPABASE_SERVICE_ROLE_KEY: mintJwt(secret, "service_role"),
@@ -124,7 +169,7 @@ function ensureCerts() {
     { stdio: "pipe" },
   );
   chmodSync(key, 0o644); // container copies + chowns; see compose entrypoint
-  log("generated self-signed postgres TLS certs in supabase/local/certs");
+  log(`generated self-signed postgres TLS certs in ${CERTS_DIR}`);
 }
 
 // ---------- lifecycle ----------
@@ -152,15 +197,16 @@ function up() {
   ].join(";");
   const res = sh("docker", ["exec", DB_CONTAINER, "psql", "-U", "supabase_admin", "-d", "postgres", "-c", pin], { allowFail: true });
   if (res.status !== 0) log(`role pin warning: ${(res.stderr || "").trim()}`);
-  compose(["up", "-d"], { pipe: false });
-  waitHealthy("nova-local-auth", 120);
+  compose(["up", "-d", ...UP_SERVICES], { pipe: false });
+  waitHealthy(AUTH_CONTAINER, 120);
   waitHttp(`${GATEWAY_URL}/auth/v1/health`, 60);
-  log("stack is up: postgres=127.0.0.1:5433 (TLS) auth/gateway=http://127.0.0.1:54321/auth/v1");
+  log(`stack is up (${PROFILE}): postgres=127.0.0.1:${DB_PORT} (TLS) auth/gateway=${GATEWAY_URL}/auth/v1`);
 }
 
 function down(clear) {
-  compose(["down", ...(clear ? ["-v"] : [])], { pipe: false });
-  log(clear ? "stack down + data volume removed" : "stack down (data kept)");
+  // The staging profile is disposable by definition: always remove volumes.
+  compose(["down", ...(clear || PROFILE === "staging" ? ["-v"] : [])], { pipe: false });
+  log(clear || PROFILE === "staging" ? "stack down + data volume removed" : "stack down (data kept)");
 }
 
 function waitHealthy(name, secs) {
@@ -176,7 +222,7 @@ function waitHealthy(name, secs) {
 async function waitHttp(url, secs) {
   const deadline = Date.now() + secs * 1000;
   while (Date.now() < deadline) {
-    try { const r = await fetch(url); if (r.status < 500) { log(`${url} responding`); return; } } catch {}
+    try { const r = await fetch(url, { signal: AbortSignal.timeout(5000) }); if (r.status < 500) { log(`${url} responding`); return; } } catch {}
     await new Promise((r) => setTimeout(r, 2000));
   }
   throw new Error(`${url} not responding`);
@@ -265,8 +311,6 @@ async function seed() {
 
 // ---------- disposable PG16 rehearsal cluster ----------
 
-const TESTDB_CONTAINER = "nova-local-testdb";
-const TESTDB_PORT = 5434;
 const TESTDB_ADMIN = `postgresql://postgres:postgres@127.0.0.1:${TESTDB_PORT}`;
 // Migrations that need Supabase-only runtime objects (pg_net/pg_cron/vault);
 // documented skips shared by every portable replay (docs/validation/*t027*).
@@ -450,7 +494,11 @@ async function verify() {
   checks.push(["issuer no lease table privs", q(`SELECT NOT has_table_privilege('${CANONICAL_ISSUER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${CANONICAL_ISSUER_ROLE}','public.tenant_worker_dispatch_leases','INSERT')`)]);
   checks.push(["resolver no lease table privs", q(`SELECT NOT has_table_privilege('${CANONICAL_RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${CANONICAL_RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','UPDATE')`)]);
   checks.push(["auth users", q(`SELECT count(*) >= 2 FROM auth.users`)]);
-  checks.push(["tenant seeded", q(`SELECT status='active' FROM public.tenants WHERE slug='nova-local'`)]);
+  // The seeded tenant slug differs per profile (local imports `nova-local`
+  // from the data import; staging seeds `local-demo`). NOVA_VERIFY_TENANT_SLUG
+  // overrides for the staging rehearsal.
+  const seedSlug = process.env.NOVA_VERIFY_TENANT_SLUG ?? "nova-local";
+  checks.push(["tenant seeded", q(`SELECT status='active' FROM public.tenants WHERE slug='${seedSlug}'`)]);
   checks.push(["app_users seeded", q(`SELECT count(*) >= 2 FROM public.app_users`)]);
   try {
     const r = await fetch(`${GATEWAY_URL}/auth/v1/health`);

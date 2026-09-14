@@ -120,3 +120,33 @@ jobs:
       - name: Tear down disposable Postgres
         if: always()
         run: node scripts/ci-postgres-rehearsal.mjs down
+
+  staging-rehearsal:
+    name: Isolated staging rehearsal (Supabase + Next production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Staging harness selftest (fake docker, no daemon)
+        run: node scripts/staging-rehearsal.selftest.mjs
+      # Ephemeral run: uniquely-named nova-staging-<run>-* containers on
+      # isolated ports, own compose project/volume/network, verified owned-only
+      # teardown inside the script. No preexisting resources are touched.
+      - name: Isolated staging rehearsal
+        run: node scripts/staging-rehearsal.mjs rehearse
+      # Only the allowlisted receipt is uploaded; private/ (env files, certs,
+      # logs, test output) is deleted by the script on verified cleanup and is
+      # never part of the artifact.
+      - name: Upload sanitized staging receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: staging-artifacts/*/receipt.json
