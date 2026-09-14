@@ -43,6 +43,7 @@ try {
   run("Recovery contract and schema verifier", bins.recovery, []);
   run(process.platform === "win32" ? "Vitest" : "Vitest (portable non-Windows lane)", bins.vitest, vitestArgs);
   run("Next production build", bins.next, ["build"]);
+  run("Deployment trace safety", fileURLToPath(new URL("./server-traces.selftest.mjs", import.meta.url)), []);
 
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;

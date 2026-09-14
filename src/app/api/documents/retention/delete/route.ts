@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createLocalDocumentStore } from "@/lib/documents/local-storage-adapter";
 import {
   documentPipelineBoundScope,
   documentPipelineDiscoveryScope,
@@ -14,16 +13,8 @@ import {
   discoverDocumentDeletionRequests,
 } from "@/lib/documents/pipeline-service";
 import { createPostgresDocumentPipelineRepository } from "@/lib/documents/postgres-pipeline-repository";
+import { documentRuntimeServices } from "@/lib/documents/runtime-services";
 import { applyNoStoreHeaders } from "@/lib/http-cache";
-
-const STORE_ROOT_ENV = "NOVA_DOCUMENT_STORE_ROOT";
-const SIGNING_SECRET_ENV = "NOVA_DOCUMENT_SIGNING_SECRET";
-
-function localStore() {
-  const rootDir = process.env[STORE_ROOT_ENV]?.trim() || ".data/document-objects";
-  const signingSecret = process.env[SIGNING_SECRET_ENV]?.trim() ?? "";
-  return createLocalDocumentStore({ rootDir, signingSecret });
-}
 
 /**
  * Applies pending deletion requests: the bound scope's job id must equal the
@@ -55,7 +46,7 @@ export async function POST(request: NextRequest) {
           }),
           (db) => applyDocumentDeletion({ requestId: requestRef.requestId }, {
             repository: createPostgresDocumentPipelineRepository(db),
-            remover: localStore(),
+            remover: documentRuntimeServices().storage,
           }),
         );
         applied.push({ requestId: requestRef.requestId, outcome: result.kind });

@@ -6,6 +6,16 @@ const nextConfig: NextConfig = {
     root: process.cwd(),
   },
   serverExternalPackages: ["better-sqlite3"],
+  // These are runtime-local state, not deployment assets. A production CA
+  // bundle must be provisioned separately, never copied from the dev stack.
+  outputFileTracingExcludes: {
+    "/*": [
+      "./.env*", "./.git/**/*", "./.auth/**/*", "./.data/**/*",
+      "./nosite-leads.db*", "./supabase/local/certs/**/*",
+      "./staging-artifacts/**/*", "./data-export/**/*",
+      "./test-results/**/*", "./playwright-report/**/*",
+    ],
+  },
   async headers() {
     return [
       {

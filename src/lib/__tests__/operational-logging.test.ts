@@ -229,6 +229,25 @@ describe("recordOperationalEvent", () => {
     );
   });
 
+  it("never pushes the pseudonymous actor hash into the audit actor uuid field", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    await recordOperationalEvent({
+      action: "legacy_actor_fixture",
+      category: "auth",
+      actor: { userId: "9b1d4f6a-7c2e-4a1b-9d3f-2e5c8a7b6d90", email: "actor@example.com", role: "researcher" },
+    });
+
+    const [, event] = infoSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(event.actorUserId).toMatch(/^[0-9a-f]{16}$/);
+    expect(queryMocks.createAuditLog).toHaveBeenCalledWith(
+      "legacy_actor_fixture",
+      "auth",
+      undefined,
+      expect.anything(),
+      { actor: { userId: null, email: null, role: "researcher" } },
+    );
+  });
+
   it("rejects nested secrets, contact identifiers, prompt/source content, and credential patterns", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});

@@ -141,7 +141,8 @@ export function createLocalDocumentStore(
   }> {
   const config = dataRecord(options, ["rootDir", "signingSecret"], ["uploadOrigin", "now"]);
   const rootDir = typeof config?.rootDir === "string" && config.rootDir.length > 0
-    && config.rootDir.length <= 512 ? path.resolve(config.rootDir) : null;
+    && config.rootDir.length <= 512
+    ? path.resolve(/* turbopackIgnore: true */ config.rootDir) : null;
   const signingSecret = typeof config?.signingSecret === "string"
     && config.signingSecret.length >= SIGNING_SECRET_MIN_CHARS
     && config.signingSecret.length <= 256 ? config.signingSecret : null;

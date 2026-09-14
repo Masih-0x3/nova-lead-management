@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { acceptanceStatePath } from "../scripts/e2e-safety.mjs";
 import { randomBytes, randomUUID } from "node:crypto";
 import postgres from "postgres";
 
@@ -53,12 +53,12 @@ interface HappyState {
 }
 
 function loadHappyState(): HappyState {
-  const file = join(process.cwd(), "e2e", ".acceptance-state.json");
+  const file = acceptanceStatePath();
   try {
     return JSON.parse(readFileSync(file, "utf8")) as HappyState;
   } catch {
     throw new Error(
-      "e2e/.acceptance-state.json is missing — run e2e/acceptance-happy-path.spec.ts first.",
+      "Acceptance handoff state is missing — run e2e/acceptance-happy-path.spec.ts first.",
     );
   }
 }

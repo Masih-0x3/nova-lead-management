@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { DocumentIntakeError } from "@/lib/documents/errors";
-import { createLocalDocumentStore } from "@/lib/documents/local-storage-adapter";
+import { documentRuntimeServices } from "@/lib/documents/runtime-services";
 import { DOCUMENT_MAX_BYTES } from "@/lib/documents/validation";
 import { applyNoStoreHeaders } from "@/lib/http-cache";
 
-const STORE_ROOT_ENV = "NOVA_DOCUMENT_STORE_ROOT";
-const SIGNING_SECRET_ENV = "NOVA_DOCUMENT_SIGNING_SECRET";
-
-function localStore() {
-  const rootDir = process.env[STORE_ROOT_ENV]?.trim() || ".data/document-objects";
-  const signingSecret = process.env[SIGNING_SECRET_ENV]?.trim() ?? "";
-  return createLocalDocumentStore({ rootDir, signingSecret });
+/**
+ * The signed-upload receiver exists only for the explicitly gated local
+ * backend. In production the member uploads straight to the provider-issued
+ * signed URL, so there is nothing for this route to accept.
+ */
+function uploadSink() {
+  const sink = documentRuntimeServices().uploadSink;
+  if (!sink) throw new DocumentIntakeError(
+    "storage_boundary_error",
+    "Signed uploads are not received by this deployment.",
+  );
+  return sink;
 }
 
 function reject(status: number) {
@@ -28,9 +33,9 @@ function reject(status: number) {
  * media type are the whole boundary.
  */
 export async function PUT(request: NextRequest) {
-  let store: ReturnType<typeof localStore>;
+  let store: ReturnType<typeof uploadSink>;
   try {
-    store = localStore();
+    store = uploadSink();
   } catch {
     return reject(503);
   }

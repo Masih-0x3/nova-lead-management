@@ -16,6 +16,7 @@ export async function loginAction(formData: FormData) {
       category: "auth",
       severity: "error",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "missing_auth_config" },
     });
     redirect("/login?error=missing_config");
@@ -31,6 +32,7 @@ export async function loginAction(formData: FormData) {
       category: "auth",
       severity: "warn",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "invalid_form" },
     });
     redirect("/login?error=invalid_credentials");
@@ -50,6 +52,7 @@ export async function loginAction(formData: FormData) {
       category: "auth",
       severity: "warn",
       entityType: "auth",
+      scope: "platform",
       actor: { email: normalizedEmail },
       metadata: { email: normalizedEmail, reason: "invalid_credentials" },
     });
@@ -62,6 +65,7 @@ export async function loginAction(formData: FormData) {
     severity: "info",
     entityType: "auth",
     entityId: data.user?.id ?? null,
+    scope: "platform",
     actor: { userId: data.user?.id ?? null, email: data.user?.email ?? normalizedEmail },
     metadata: { email: data.user?.email ?? normalizedEmail },
   });
@@ -81,6 +85,7 @@ export async function logoutAction() {
     severity: "info",
     entityType: "auth",
     entityId: session?.userId ?? null,
+    scope: "platform",
     actor: session
       ? { userId: session.userId, email: session.email, role: session.role ?? null }
       : null,
