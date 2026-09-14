@@ -9,15 +9,18 @@ import { test } from "node:test";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SECRET = "private-diagnostic-value-do-not-publish";
 
-test("every real-service container removes its anonymous volumes on exit", (t) => {
+test("real-service containers remove anonymous volumes on normal or forced exit", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "nova-l03-volume-safety-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const cli = join(dir, "fake-docker");
   const calls = join(dir, "calls.jsonl");
   writeFileSync(cli, `#!${process.execPath}
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + '\\n');
+const removed = ${JSON.stringify(join(dir, "removed"))};
+if (args[0] === 'ps' && !existsSync(removed)) process.stdout.write('owned-container\\n');
+if (args[0] === 'rm') writeFileSync(removed, 'removed');
 if (args.includes('inspect')) { process.stderr.write('Error: no such resource\\n'); process.exit(1); }
 if (args[0] === 'run') process.exit(7);
 process.exit(0);
@@ -30,6 +33,10 @@ process.exit(0);
     .filter((args) => args[0] === "run");
   assert.ok(starts.length > 0);
   assert.ok(starts.every((args) => args.includes("--rm")), "owned containers must not leave anonymous database/signature volumes");
+  const removals = readFileSync(calls, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    .filter((args) => args[0] === "rm");
+  assert.ok(removals.length > 0);
+  assert.ok(removals.every((args) => args.includes("-v")), "forced removal must also remove anonymous volumes on Podman");
 });
 
 test("failure receipts and default console output do not publish raw tool diagnostics", (t) => {

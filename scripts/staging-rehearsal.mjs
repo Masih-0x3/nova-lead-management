@@ -432,11 +432,11 @@ function initReceipt() {
     seeds: {},
     verify: {},
     e2e: {},
-    servicesRehearsal: "not-integrated", // parent wires sibling service/recovery hooks
+    integrationEvidence: "separate-required-ci-jobs",
     cleanup: {},
     limitations: [
-      "services/recovery rehearsal hooks are not yet integrated (parent-owned)",
-      "provider API keys force-disabled; no egress to OpenAI/Google possible",
+      "this receipt proves browser/Supabase staging; recovery/auth-audit/Storage-ClamAV are separate required CI prerequisites",
+      "paid-provider keys are force-disabled; this is not a network-level egress firewall",
     ],
   });
 }

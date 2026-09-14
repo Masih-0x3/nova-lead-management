@@ -22,8 +22,8 @@ ephemeral, uniquely named, and torn down by the same process that started it.
    malformed ambient environment. Unknown commands/flags, malformed ports, and
    malformed run ids reject before any mutation.
 2. Read-only preflight (zero mutation): docker daemon reachability is required
-   (an unreachable daemon is not "empty"), the protected `nova-local-*`
-   containers are verified present-and-untouched, ports are probed, run-prefix
+   (an unreachable daemon is not "empty"), any existing protected `nova-local-*`
+   containers are recorded and left untouched, ports are probed, run-prefix
    leftovers refuse, and `staging-artifacts/` must be a real uid-owned
    directory (symlinks and preexisting run dirs refuse).
 3. Exclusive `mkdir staging-artifacts/<run-id>` (0700) — the ownership
@@ -86,13 +86,28 @@ ephemeral, uniquely named, and torn down by the same process that started it.
 
 `.github/workflows/ci.yml` runs `staging-rehearsal` on `ubuntu-latest` with
 `environment: staging`: Node 24, `npm ci`, Playwright Chromium, the selftest,
-then `rehearse`. Only `staging-artifacts/*/receipt.json` is uploaded.
+the independent preservation tests, then `rehearse`. It runs only after all
+five prerequisite jobs succeed: the release gate, disposable schema suites,
+the self-provisioning suites including native recovery, restricted tenant
+operations plus real-PG auth audit, and private Storage/ClamAV integration.
+Only `staging-artifacts/*/receipt.json` and the separate sanitized service
+receipt are uploaded, with seven-day retention. No private state or raw logs
+are uploaded as artifacts.
+
+This is the complete CI release proof, composed from independent lanes so
+each owns its fixtures and cleanup. The local staging command itself proves
+the Supabase/browser lane; run the additional commands in
+[TESTING.md](TESTING.md) for the database/recovery/service evidence, and
+`node scripts/ci-postgres-rehearsal.mjs auth-audit` after `up provision` for
+the auth audit lane (always finish with `down`).
 
 ## Known limitations
 
-- Service/recovery rehearsal hooks are **not yet integrated** (parent-owned);
-  the receipt reports `servicesRehearsal: "not-integrated"`.
-- The auth-audit real-PG suite is intentionally extensible: the seed stage is
-  the insertion point before e2e, but the suite itself lands with the parent.
 - The sibling real-services lane (Supabase Storage + ClamAV) is proved
-  separately; this lane pins local document backends.
+  separately and required by CI; this browser lane pins local document backends.
+- Empty provider keys exercise application-level fail-closed guards, not a
+  network egress firewall. No paid provider was exercised.
+- The test app's PostgreSQL credential is privileged for fixture setup;
+  restricted worker roles are proved separately. Production application-role
+  privileges, external Auth/Storage recovery, secrets, provider budgets, and
+  named-owner launch approval remain production qualification requirements.

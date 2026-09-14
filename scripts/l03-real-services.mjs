@@ -365,7 +365,10 @@ function down() {
   );
   const ids = (listed.stdout ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
   for (const id of ids) {
-    if (cli(["rm", "-f", id], { allowFail: true }).status !== 0) {
+    // Podman's forced removal does not consistently apply --rm's anonymous
+    // volume cleanup. These containers were created by this run; their only
+    // host mounts are explicit read-only binds, never shared named volumes.
+    if (cli(["rm", "-f", "-v", id], { allowFail: true }).status !== 0) {
       problems.push(`container ${id} could not be removed`);
     }
   }
