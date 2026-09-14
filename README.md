@@ -180,7 +180,7 @@ See [`docs/TESTING.md`](docs/TESTING.md) for the suite boundaries, auth requirem
 Local development uses SQLite at `nosite-leads.db` when `DATABASE_URL` is not set. Production uses Supabase Postgres through the `DATABASE_URL` transaction pooler connection string. Apply every file in `supabase/migrations/` in timestamp order; later migrations add auth, scheduler, enrichment lease, and demo lifecycle fields.
 
 Export/import never applies migrations or backs up Supabase Auth/Vault. Follow
-[`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md) for the 23-table recovery
+[`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md) for the 37-table portable recovery
 contract, protected-column exclusions, verification, restore order, and rollback.
 
 Core tables:
