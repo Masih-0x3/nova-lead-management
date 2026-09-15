@@ -549,11 +549,11 @@ function waitReady(name, secs = Number(process.env.CI_PG_READY_SECS || 90)) {
   const deadline = Date.now() + secs * 1000;
   while (Date.now() < deadline) {
     const res = docker(
-      ["exec", name, "psql", "-X", "-U", "postgres", "-d", "postgres", "-Atc", "SELECT 1"],
+      ["exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-q"],
       true,
       10_000,
     );
-    if ((res.stdout || "").trim() === "1") return;
+    if (res.status === 0) return;
     spawnSync("sleep", ["0.5"], { timeout: 5_000 });
   }
   const logs = docker(["logs", name], true);

@@ -224,7 +224,7 @@ function up() {
     "-d", "-e", "POSTGRES_PASSWORD=postgres", "-e", "POSTGRES_DB=postgres", IMAGE.db,
   ]);
   for (let i = 0; i < 240; i += 1) {
-    if (cli(["exec", NAMES.db, "pg_isready", "-U", "postgres"], { allowFail: true }).status === 0) break;
+    if (cli(["exec", NAMES.db, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], { allowFail: true }).status === 0) break;
     if (i === 239) throw new Error("postgres never became ready");
     spawnSync("sleep", ["0.5"]);
   }

@@ -91,11 +91,10 @@ function waitForPostgres(name: string): void {
     if (
       docker(
         [
-          "exec", name, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres",
-          "-d", DATABASE, "-Atc", "SELECT 1",
+          "exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres",
         ],
         true,
-      ) === "1"
+      ).includes("accepting")
     )
       return;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
