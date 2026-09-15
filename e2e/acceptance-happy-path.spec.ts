@@ -130,6 +130,12 @@ test("L-08 happy path: invite -> evidence -> ICP/play -> discovery -> qualify ->
     expect(own.status, `own-tenant read failed: ${JSON.stringify(own.body)}`).toBe(200);
   });
 
+  const approverPage = await (await browser.newContext()).newPage();
+  await test.step("approver signs in through the real login UI", async () => {
+    await loginAs(approverPage, "approver");
+    expect(approverPage.url()).toContain("/queue");
+  });
+
   await test.step("approved evidence lands in an understanding version", async () => {
     const evidence = [
       evidenceItem(1, "Catalog lists epoxy resin systems for industrial formulators."),
@@ -185,15 +191,9 @@ test("L-08 happy path: invite -> evidence -> ICP/play -> discovery -> qualify ->
       page, `/api/understanding/versions/${state.understandingVersionId}/review`,
       state.understandingVersionId, state.understandingReviewHash, "in_review", ADMIN);
     const approved = await reviewStep(
-      page, `/api/understanding/versions/${state.understandingVersionId}/review`,
+      approverPage, `/api/understanding/versions/${state.understandingVersionId}/review`,
       state.understandingVersionId, inReview, "approved", APPROVER);
     state.understandingReviewHash = approved;
-  });
-
-  const approverPage = await (await browser.newContext()).newPage();
-  await test.step("approver signs in through the real login UI", async () => {
-    await loginAs(approverPage, "approver");
-    expect(approverPage.url()).toContain("/queue");
   });
 
   await test.step("ICP created from approved understanding and approved", async () => {
@@ -237,7 +237,7 @@ test("L-08 happy path: invite -> evidence -> ICP/play -> discovery -> qualify ->
       page, `/api/strategy/icp/versions/${state.icpVersionId}/review`,
       state.icpVersionId, value.stored.review.reviewHash, "in_review", ADMIN);
     await reviewStep(
-      page, `/api/strategy/icp/versions/${state.icpVersionId}/review`,
+      approverPage, `/api/strategy/icp/versions/${state.icpVersionId}/review`,
       state.icpVersionId, inReview, "approved", APPROVER);
   });
 
@@ -287,7 +287,7 @@ test("L-08 happy path: invite -> evidence -> ICP/play -> discovery -> qualify ->
       page, `/api/strategy/plays/versions/${state.playVersionId}/review`,
       state.playVersionId, value.stored.review.reviewHash, "in_review", ADMIN);
     await reviewStep(
-      page, `/api/strategy/plays/versions/${state.playVersionId}/review`,
+      approverPage, `/api/strategy/plays/versions/${state.playVersionId}/review`,
       state.playVersionId, inReview, "approved", APPROVER);
   });
 
@@ -316,7 +316,7 @@ test("L-08 happy path: invite -> evidence -> ICP/play -> discovery -> qualify ->
     const simulation = (simBody.value as { simulationId: string }).simulationId;
 
     const eligibility = await apiPost(
-      page,
+      approverPage,
       `/api/strategy/plays/versions/${state.playVersionId}/simulations/${simulation}/eligibility`,
       scoped({
         decision: "eligible",
@@ -326,7 +326,7 @@ test("L-08 happy path: invite -> evidence -> ICP/play -> discovery -> qualify ->
     const eligBody = await apiOk(eligibility, "simulation eligibility");
     expect(eligBody.ok).toBe(true);
 
-    const activated = await apiPost(page, "/api/strategy/plays/activation", scoped({
+    const activated = await apiPost(approverPage, "/api/strategy/plays/activation", scoped({
       stableKey: state.playStableKey,
       playVersionId: state.playVersionId,
       action: "activate",
