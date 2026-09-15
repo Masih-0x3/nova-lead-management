@@ -5,7 +5,7 @@ Current as of September 14, 2026. This file and the [lean finish plan](plans/202
 ## Start here
 
 - Repository: `Masih-0x3/nova-trade-lead-management`.
-- Release integration: `codex/nova-multitenant-integration`, [PR #5](https://github.com/Masih-0x3/nova-trade-lead-management/pull/5).
+- Release history and final CI: [PR #5](https://github.com/Masih-0x3/nova-trade-lead-management/pull/5). Continue from current `main` after merge, not an archived worker branch.
 - Product scope: [multi-tenant lead intelligence requirements](product-requirements-multi-tenant-lead-intelligence-platform.md).
 - Read `AGENTS.md`, check `git status --short --branch`, and inspect overlapping edits before writing. Use Node 24; the system Node 22 is not the supported build/test runtime.
 
@@ -19,33 +19,31 @@ Tenant context, policy, budgets, leases, replay protection, and explicit human a
 
 PostgreSQL is the multi-tenant application's authority. SQLite remains the `DATABASE_URL`-absent compatibility path, not a replacement for Supabase Auth or PostgreSQL worker leases. The portable v4 JSON recovery contract covers 37 legacy tables and is not a complete backup of newer PostgreSQL product data.
 
-## Release work in progress
+## Completed engineering release work
 
-Four isolated Devin SWE-2 Max lanes are completing:
+Four isolated Devin CLI SWE-2 Max lanes delivered full PostgreSQL application-schema recovery, expanded database CI and isolated staging, private Supabase Storage/ClamAV runtime integration, and supported dependency updates. Independent review also fixed pre-tenant audit persistence, provider request cancellation, actor attribution, fresh review-queue chronology, replay timestamps, citation/PDF validation, and destructive compatibility-rehearsal preflight.
 
-1. Full PostgreSQL application-schema recovery and a real restore rehearsal.
-2. Expanded disposable database CI, followed by isolated Supabase staging and authenticated acceptance.
-3. Explicit private Supabase Storage/ClamAV runtime wiring and real-service proof.
-4. Supported dependency updates for the advisories found by the fresh September 14 audit.
+A GitHub `staging` environment now runs reproducible disposable infrastructure, not an always-on public URL. Its CI job depends on five independent prerequisite jobs: the release gate, disposable schema tests, self-provisioning database/native-recovery tests, restricted tenant-ops/auth-audit tests, and real Storage/ClamAV integration. No merge is accepted until all six jobs pass for the final candidate; use PR #5 for their live status rather than an older branch's green check.
 
-The integration owner reviews each diff, runs independent checks, updates the lean plan, and merges through PR #5 only after the final candidate passes. A GitHub `staging` environment exists; the selected staging approach is reproducible disposable local/CI infrastructure, not an always-on public URL. Final release proof is not yet complete at this checkpoint.
+The engineering merge and staging rehearsal do not approve a production launch. Named-owner production qualification remains explicit below.
 
 ## Current verification evidence
 
-September 14 baseline, before the new release-lane changes:
+September 14 accepted local evidence:
 
-- The integrated production build passed L-08 happy/degraded browser acceptance: 2/2.
-- Separate admin and researcher sessions passed 26 and 12 authenticated browser checks respectively.
-- GitHub's composed `release:check` passed. Its older PostgreSQL job exposed a stale migration-count assertion, corrected from 89/87 to 91/89 discovered/applied, with two explicitly Supabase-only migrations excluded from portable PostgreSQL replay.
-- The read-only portable recovery verifier passed its 37-table contract.
-- A full Git-history secret scan's 35 candidates were reviewed as deliberate fixtures or non-secret task labels; this is not evidence that previously exposed chat credentials have been revoked.
-- A fresh production dependency audit reported five vulnerable packages, including critical Next.js advisories; repair and final verification are still in progress.
+- Final code candidate `9a90f00`: `release:check` passed TypeScript, ESLint, **4,519 tests**, production build, deployment-trace safety, and **5** public read-only browser tests. Its portable lane explicitly skips 39 environment-gated files (261 tests) and excludes three Windows-only files; those skips are not database proof.
+- Isolated Supabase staging applies **91/91** migrations, verifies restricted worker roles, and passes **2** happy/degraded acceptance, **26** admin, and **12** researcher browser checks with separate identities and verified owned-resource teardown. Portable PostgreSQL replay applies 89 of the same 91 files, excluding two Supabase-only migrations.
+- Independent real database checks passed **105** tenant-ops tests, **8** pre-tenant auth-audit tests, and **33** native PostgreSQL recovery tests. Recovery classifies all **120** migrated public tables; the portable legacy contract remains **37** tables.
+- Real private Storage/ClamAV integration passed **12/12**, including malware, expiry, tenant binding, and clean-document extraction. The final forced-cleanup probe left **zero new anonymous volumes**. Browser staging uses separate explicit local document backends, not the Storage/ClamAV stack.
+- Harness safety checks passed **27** staging selftests, **6** independent staging-preservation tests, **16** tenant-ops-runner tests, and **4** real-services-runner tests.
+- `npm audit` reports **zero vulnerabilities** across production and development dependencies after the supported updates.
+- Git-history secret-scan candidates were reviewed as deliberate test fixtures or non-secret task labels. The final incremental scan's three matches are two synthetic Auth UUIDs and one negative-test secret, not live credentials. This does not revoke credentials previously exposed in chat.
 
 Use `npm run release:check` as the local gate. Database and authenticated browser rehearsals are separate requirements; environment-gated skips are not proof. The release plan will hold the final accepted evidence.
 
 ## Running and testing locally
 
-See [TESTING.md](TESTING.md), [DATA_RECOVERY.md](DATA_RECOVERY.md), and `.env.example` for the relevant boundaries. The existing `scripts/local-supabase.mjs` supports local stack/bootstrap operations; use the isolated staging tooling for release rehearsal once integrated.
+See [TESTING.md](TESTING.md), [STAGING.md](STAGING.md), [DATA_RECOVERY_POSTGRES.md](DATA_RECOVERY_POSTGRES.md), and `.env.example`. With Node 24 and a Docker-compatible daemon, `node scripts/staging-rehearsal.mjs rehearse` creates, tests, and tears down an isolated staging instance. It does not overwrite the development stack or require cloud credentials. Only its sanitized receipt is uploadable.
 
 For an existing production-mode local server, use the canonical `http://localhost:3000` origin consistently. Do not weaken Secure cookies to accommodate Playwright's differing loopback handling. L-08 runs with `E2E_ACCEPTANCE=1`; admin smoke excludes `Researcher Smoke Test`, and the researcher spec must run with its own researcher credentials. Running all role assertions under one admin identity is invalid.
 
@@ -53,7 +51,7 @@ Keep `.env.local`, Supabase local keys/certificates, SQLite databases/sidecars, 
 
 ## Cleanup and historical work
 
-Nova's redundant hourly maintenance automation is disabled. The old L-03, L-07, and L-08 worktrees and local runtime state were privately backed up before cleanup. A verified all-ref Git bundle preserves the original branch history; no credentials or local database archives belong in GitHub artifacts.
+Nova's redundant hourly maintenance automation is disabled. Completed feature/release worktrees and their terminals were closed after private checkout archives and verified all-ref Git bundles were created. Original local application/PostgreSQL data is preserved; ignored credentials, Auth state, and database archives do not belong in GitHub artifacts. Other repositories and their active terminals are outside this cleanup.
 
 The historical `codex/nova-g006c2a-anchor-repair` commit `1d2931d` was explicitly rejected in `cfbb650` and stopped in `a0c1d82`: it breaks upgraded replay after legitimate writes and lacks continuous proof-to-write binding. It must remain archival history, not be merged as part of cleanup. Its underlying primitive has no production caller. Other completed branch tips can be removed only after ancestry or patch-equivalence checks and recoverable preservation.
 
@@ -61,4 +59,11 @@ The GitHub/CodeRabbit credential exposed in an earlier conversation still requir
 
 ## Next agent workflow
 
-Finish the active release lanes and the final evidence/merge/cleanup first. Do not restart completed L-01–L-08 feature work or exhaust old implementation cards. Once the release candidate is merged and rehearsed, the next distinct decision is production infrastructure/configuration and owner go/no-go for the first design partner. Automatic outreach sending, self-serve billing/signup, broad CRM synchronization, speculative connectors, and unmeasured performance work remain deferred.
+Do not restart completed L-01–L-08 work or exhaust old implementation cards. After PR #5 merges, the next distinct task is production qualification with a named owner:
+
+1. Rotate/revoke the previously exposed GitHub/CodeRabbit credential and confirm ownership.
+2. Select the actual deployment target; provision production-only secrets, a least-privilege application role, restricted worker roles, provider budgets, private Storage, and the scanner. Verify the managed Storage target's signed-upload lifetime and private connectivity.
+3. Rehearse external Supabase Auth/Storage/configuration/key recovery as well as the application-schema backup on production-sized fixtures. The native public-schema archive alone is not complete Supabase disaster recovery.
+4. Record the named owner's go/no-go before deployment or design-partner enrollment. No paid provider, customer onboarding, or automatic sending was enabled by this engineering release.
+
+See [deployment qualification](VERCEL_SUPABASE_DEPLOYMENT.md). Automatic outreach sending, self-serve billing/signup, broad CRM synchronization, speculative connectors, and unmeasured performance work remain deferred.
