@@ -74,6 +74,22 @@ function sanitize(text) {
     .slice(0, 2_000);
 }
 
+// Safe-to-publish failure localization: container-cli verb + exit status, or a
+// literal internal error code. Never includes stderr/stdout — those can echo
+// arbitrary provider diagnostics.
+function failureHint(error) {
+  if (error instanceof CliFailure) {
+    const verb = error.cliArgs
+      .filter((arg) => !arg.startsWith("-"))
+      .slice(0, 2)
+      .join(".");
+    return `cli:${verb || "unknown"}:status-${error.cliStatus ?? "spawn"}`;
+  }
+  const known = /^(RESOURCE_INSPECTION_FAILED|refusing to adopt|postgres never became ready|openssl failed|no container CLI found|CONTAINER_CLI=|readiness probe failed|could not capture clamd engine version|quarantine bucket was not verified private)/u
+    .exec(error?.message || "");
+  return known ? known[1] : "internal";
+}
+
 // ---------- container cli ----------
 
 function detectCli() {
@@ -91,6 +107,13 @@ function detectCli() {
 }
 
 let CLI = "";
+class CliFailure extends Error {
+  constructor(args, status, message) {
+    super(message);
+    this.cliArgs = args;
+    this.cliStatus = status;
+  }
+}
 function cli(args, opts = {}) {
   const res = spawnSync(CLI, args, {
     encoding: "utf8",
@@ -102,7 +125,9 @@ function cli(args, opts = {}) {
       index > 0 && (args[index - 1] === "-e" || args[index - 1] === "--env")
         ? `${arg.split("=")[0]}=<redacted>`
         : arg);
-    throw new Error(
+    throw new CliFailure(
+      args,
+      res.status,
       `${CLI} ${redacted.join(" ")} failed (status ${res.status}): ${sanitize(res.stderr || res.stdout || res.error?.message || "")}`,
     );
   }
@@ -115,7 +140,7 @@ function resourceExists(kind, name) {
   // must not be misread as proof that a resource was removed.
   const result = cli([kind, "inspect", name], { allowFail: true });
   if (result.status === 0) return true;
-  const absent = /no such (?:container|network|resource)|(?:container|network) not found|no (?:container|network) .+ found/iu;
+  const absent = /no such (?:container|network|resource)|(?:container|network) not found|(?:container|network) \S+ not found|no (?:container|network) .+ found/iu;
   if ([1, 125].includes(result.status) && absent.test(result.stderr || "")) return false;
   throw new Error("RESOURCE_INSPECTION_FAILED");
 }
@@ -518,11 +543,14 @@ async function main() {
     if (outcome.cliStatus === 0 && countsOk && !outcome.timedOut) {
       receipt.result = "pass";
     }
-  } catch {
+  } catch (error) {
     // Provider/tool diagnostics can echo arbitrary credentials or object data,
-    // even after pattern redaction. Publish only known phase codes; test names
-    // and statuses already identify the failing checks without their raw diff.
-    receipt.failures.push(phase === "stack" ? "STACK_FAILED" : "TEST_EXECUTION_FAILED");
+    // even after pattern redaction. Publish only known phase codes plus a
+    // bounded hint (cli verb + exit status, or a literal internal code); test
+    // names and statuses already identify the failing checks without raw diff.
+    receipt.failures.push(
+      `${phase === "stack" ? "STACK_FAILED" : "TEST_EXECUTION_FAILED"}:${failureHint(error)}`,
+    );
   } finally {
     try {
       receipt.cleanup = down();

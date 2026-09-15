@@ -133,3 +133,31 @@ process.exit(0);
   assert.equal(receipt.cleanup.verified, true);
   assert.equal(receipt.cleanup.networkRemoved, true);
 });
+
+test("recognized Docker missing-resource diagnostics are compatible with verified cleanup", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "nova-l03-docker-safety-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cli = join(dir, "fake-docker");
+  const receiptPath = join(dir, "receipt.json");
+  writeFileSync(cli, `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[0] === '--version') process.exit(0);
+if (args.includes('inspect')) {
+  process.stderr.write(args[0] === 'network'
+    ? 'Error response from daemon: network nova-missing-net not found\\n'
+    : 'Error response from daemon: No such container: missing\\n');
+  process.exit(1);
+}
+if (args[0] === 'network' && args[1] === 'create') process.exit(7);
+process.exit(0);
+`, { mode: 0o700 });
+  const result = spawnSync(process.execPath, [join(ROOT, "scripts/l03-real-services.mjs"), "--receipt", receiptPath], {
+    cwd: ROOT,
+    env: { ...process.env, CONTAINER_CLI: cli, L03_DEBUG: "0" },
+    encoding: "utf8", timeout: 20_000,
+  });
+  assert.equal(result.status, 1);
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  assert.equal(receipt.cleanup.verified, true);
+  assert.equal(receipt.cleanup.networkRemoved, true);
+});
