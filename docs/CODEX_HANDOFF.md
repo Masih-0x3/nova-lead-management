@@ -1,15 +1,15 @@
 # Nova Trade Agent Handoff
 
-Current as of September 14, 2026. This file and the [lean finish plan](plans/2026-08-29-lean-finish-plan.md) replace the historical June/July task queue. The old 318-card plan is reference material, not a backlog to restart.
+Current as of September 16, 2026. This file and the [lean finish plan](plans/2026-08-29-lean-finish-plan.md) replace the historical June/July task queue. The old 318-card plan is reference material, not a backlog to restart.
 
 ## Start here
 
 - Repository: `Masih-0x3/nova-trade-lead-management`.
-- Release history and final CI: [PR #5](https://github.com/Masih-0x3/nova-trade-lead-management/pull/5). Continue from current `main` after merge, not an archived worker branch.
+- Release history: [PR #5](https://github.com/Masih-0x3/nova-trade-lead-management/pull/5) merged into `main`. The multitenant lead intelligence platform implementation (L-01 through L-08) is integrated on `main`. Continue from current `main`.
 - Product scope: [multi-tenant lead intelligence requirements](product-requirements-multi-tenant-lead-intelligence-platform.md).
 - Read `AGENTS.md`, check `git status --short --branch`, and inspect overlapping edits before writing. Use Node 24; the system Node 22 is not the supported build/test runtime.
 
-The user authorized finishing the remaining release work with Devin CLI SWE-2 Max, establishing an appropriate staging rehearsal, committing, pushing, merging, and cleaning completed worktrees. That authorization does not enable production/customer enrollment, paid provider work, or automatic sending. Future agents must still follow the current user's requested scope.
+The user authorized completing the remaining release work, establishing the staging rehearsal, and merging PR #5 into `main`. That authorization does not enable production/customer enrollment, paid provider work, or automatic sending. Future agents must still follow the current user's requested scope.
 
 ## Implemented product
 
@@ -59,11 +59,10 @@ The GitHub/CodeRabbit credential exposed in an earlier conversation still requir
 
 ## Next agent workflow
 
-Do not restart completed L-01–L-08 work or exhaust old implementation cards. After PR #5 merges, the next distinct task is production qualification with a named owner:
+Do not restart completed L-01–L-08 work or exhaust old implementation cards. With PR #5 merged into `main`, the remaining distinct task is production qualification (L-09) with a named owner:
 
-1. Rotate/revoke the previously exposed GitHub/CodeRabbit credential and confirm ownership.
-2. Select the actual deployment target; provision production-only secrets, a least-privilege application role, restricted worker roles, provider budgets, private Storage, and the scanner. Verify the managed Storage target's signed-upload lifetime and private connectivity.
-3. Rehearse external Supabase Auth/Storage/configuration/key recovery as well as the application-schema backup on production-sized fixtures. The native public-schema archive alone is not complete Supabase disaster recovery.
-4. Record the named owner's go/no-go before deployment or design-partner enrollment. No paid provider, customer onboarding, or automatic sending was enabled by this engineering release.
+1. Select the actual deployment target; provision production-only secrets, a least-privilege application role, restricted worker roles, provider budgets, private Storage, and the scanner. Verify the managed Storage target's signed-upload lifetime and private connectivity.
+2. Rehearse external Supabase Auth/Storage/configuration/key recovery as well as the application-schema backup on production-sized fixtures. The native public-schema archive alone is not complete Supabase disaster recovery.
+3. Record the named owner's go/no-go before deployment or design-partner enrollment. No paid provider, customer onboarding, or automatic sending was enabled by this engineering release.
 
 See [deployment qualification](VERCEL_SUPABASE_DEPLOYMENT.md). Automatic outreach sending, self-serve billing/signup, broad CRM synchronization, speculative connectors, and unmeasured performance work remain deferred.
