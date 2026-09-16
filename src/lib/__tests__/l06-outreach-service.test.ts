@@ -633,6 +633,7 @@ function runtimeDeps(): AgentRuntimeDependencies {
       seedL04AgentRuntime().policies,
     ),
     provider: createDeterministicFixtureProvider(),
+    clock: { now: () => "2026-09-16T14:00:00.000Z" },
   };
 }
 
