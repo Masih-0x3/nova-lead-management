@@ -261,13 +261,33 @@ describe("tenant session scope", () => {
     ["malformed tenant selector", { tenantId: "not-a-uuid" }],
     ["wrong tenant", { tenantId: "00000000-0000-4000-8000-000000000099" }],
     ["cross-tenant workspace", { tenantId: TENANT_A, workspaceId: WORKSPACE_B }],
-    ["inactive workspace", { tenantId: TENANT_A, workspaceId: WORKSPACE_INACTIVE }],
     ["malformed workspace selector", { tenantId: TENANT_A, workspaceId: "bad" }],
   ])("fails closed for %s", async (_label, selector) => {
     const db = createDb();
     seedFoundation(db);
     await expect(resolveAtTrustedNow({ authIdentityId: AUTH_SHARED, selector }, db))
       .rejects.toMatchObject({ name: "TenantScopeResolutionError" });
+  });
+
+  it("retains paused-workspace scope for read and bookkeeping operations", async () => {
+    const db = createDb();
+    seedFoundation(db);
+
+    await expect(resolveAtTrustedNow({
+      authIdentityId: AUTH_SHARED,
+      selector: { tenantId: TENANT_A, workspaceId: WORKSPACE_INACTIVE },
+    }, db)).resolves.toMatchObject({ workspaceId: WORKSPACE_INACTIVE, role: "owner" });
+  });
+
+  it.each(["provisioning", "deleted"] as const)("rejects a %s workspace", async (status) => {
+    const db = createDb();
+    seedFoundation(db);
+    await db.prepare("UPDATE workspaces SET status = ? WHERE id = ?").run(status, WORKSPACE_INACTIVE);
+
+    await expect(resolveAtTrustedNow({
+      authIdentityId: AUTH_SHARED,
+      selector: { tenantId: TENANT_A, workspaceId: WORKSPACE_INACTIVE },
+    }, db)).rejects.toMatchObject({ name: "TenantScopeResolutionError" });
   });
 
   it.each(["pending", "suspended", "disabled"] as const)("rejects %s membership", async (status) => {
@@ -281,7 +301,7 @@ describe("tenant session scope", () => {
     }, db)).rejects.toBeInstanceOf(TenantScopeResolutionError);
   });
 
-  it("rejects an inactive tenant", async () => {
+  it("retains suspended-tenant scope for an owner membership", async () => {
     const db = createDb();
     seedFoundation(db);
     await db.prepare(
@@ -298,8 +318,84 @@ describe("tenant session scope", () => {
     await expect(resolveAtTrustedNow({
       authIdentityId: AUTH_OTHER,
       selector: { tenantId: TENANT_INACTIVE },
-    }, db)).rejects.toBeInstanceOf(TenantScopeResolutionError);
+    }, db)).resolves.toMatchObject({
+      tenantId: TENANT_INACTIVE,
+      membershipId: MEMBER_PENDING,
+      role: "owner",
+    });
   });
+
+  it.each(["suspended", "archived", "deletion_pending"] as const)(
+    "retains %s-tenant scope for an admin membership",
+    async (status) => {
+      const db = createDb();
+      seedFoundation(db);
+      await db.prepare("UPDATE tenants SET status = ? WHERE id = ?").run(status, TENANT_INACTIVE);
+      await db.prepare(
+        `INSERT INTO tenant_memberships
+         (id, tenant_id, auth_identity_id, workspace_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, 'active', ?, ?)`,
+      ).run(MEMBER_PENDING, TENANT_INACTIVE, AUTH_OTHER, CREATED, CREATED);
+      await db.prepare(
+        `INSERT INTO tenant_role_bindings
+         (id, tenant_id, membership_id, role, created_at, valid_from, reason_code)
+         VALUES (?, ?, ?, 'admin', ?, ?, 'initial_provisioning')`,
+      ).run(ROLE_REVOKED, TENANT_INACTIVE, MEMBER_PENDING, CREATED, CREATED);
+
+      await expect(resolveAtTrustedNow({
+        authIdentityId: AUTH_OTHER,
+        selector: { tenantId: TENANT_INACTIVE },
+      }, db)).resolves.toMatchObject({ tenantId: TENANT_INACTIVE, role: "admin" });
+    },
+  );
+
+  it.each(["suspended", "archived", "deletion_pending"] as const)(
+    "fails closed for a non-elevated role on a %s tenant",
+    async (status) => {
+      const db = createDb();
+      seedFoundation(db);
+      await db.prepare("UPDATE tenants SET status = ? WHERE id = ?").run(status, TENANT_INACTIVE);
+      await db.prepare(
+        `INSERT INTO tenant_memberships
+         (id, tenant_id, auth_identity_id, workspace_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, 'active', ?, ?)`,
+      ).run(MEMBER_PENDING, TENANT_INACTIVE, AUTH_OTHER, CREATED, CREATED);
+      await db.prepare(
+        `INSERT INTO tenant_role_bindings
+         (id, tenant_id, membership_id, role, created_at, valid_from, reason_code)
+         VALUES (?, ?, ?, 'researcher', ?, ?, 'initial_provisioning')`,
+      ).run(ROLE_REVOKED, TENANT_INACTIVE, MEMBER_PENDING, CREATED, CREATED);
+
+      await expect(resolveAtTrustedNow({
+        authIdentityId: AUTH_OTHER,
+        selector: { tenantId: TENANT_INACTIVE },
+      }, db)).rejects.toBeInstanceOf(TenantScopeResolutionError);
+    },
+  );
+
+  it.each(["provisioning", "deleted"] as const)(
+    "rejects a %s tenant for every role",
+    async (status) => {
+      const db = createDb();
+      seedFoundation(db);
+      await db.prepare("UPDATE tenants SET status = ? WHERE id = ?").run(status, TENANT_INACTIVE);
+      await db.prepare(
+        `INSERT INTO tenant_memberships
+         (id, tenant_id, auth_identity_id, workspace_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, 'active', ?, ?)`,
+      ).run(MEMBER_PENDING, TENANT_INACTIVE, AUTH_OTHER, CREATED, CREATED);
+      await db.prepare(
+        `INSERT INTO tenant_role_bindings
+         (id, tenant_id, membership_id, role, created_at, valid_from, reason_code)
+         VALUES (?, ?, ?, 'owner', ?, ?, 'initial_provisioning')`,
+      ).run(ROLE_REVOKED, TENANT_INACTIVE, MEMBER_PENDING, CREATED, CREATED);
+
+      await expect(resolveAtTrustedNow({
+        authIdentityId: AUTH_OTHER,
+        selector: { tenantId: TENANT_INACTIVE },
+      }, db)).rejects.toBeInstanceOf(TenantScopeResolutionError);
+    },
+  );
 
   it.each(["missing", "future"] as const)("rejects %s role binding", async (label) => {
     const db = createDb();

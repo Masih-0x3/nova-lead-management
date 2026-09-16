@@ -5,7 +5,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Tenant, Workspace } from "@/lib/tenancy/queries";
 import type { TenantDeletionFreezeHandoffStatus, TenantStatus, WorkspaceStatus } from "@/lib/tenancy/types";
 
-export type TenantLifecycleAction = "request_pause" | "request_resume" | "request_suspend";
+export type TenantLifecycleAction = "request_pause" | "request_resume" | "request_suspend" | "request_archive";
 export type TenantLifecycleTarget = "tenant" | "workspace";
 
 export type TenantLifecycleAuditSummary =
@@ -42,6 +42,7 @@ type ReadyProps = Readonly<{
   onRequestPause?: (snapshot: TenantLifecycleSnapshot) => void;
   onRequestResume?: (snapshot: TenantLifecycleSnapshot, target: TenantLifecycleTarget) => void;
   onRequestSuspend?: (snapshot: TenantLifecycleSnapshot) => void;
+  onRequestArchive?: (snapshot: TenantLifecycleSnapshot) => void;
   error?: never;
 }>;
 
@@ -207,6 +208,10 @@ export function TenantLifecyclePanel(props: TenantLifecyclePanelProps) {
     && auditRecorded
     && props.authorizations.request_suspend === true
     && Boolean(props.onRequestSuspend);
+  const canArchive = (snapshot.tenant.status === "active" || snapshot.tenant.status === "suspended")
+    && auditRecorded
+    && props.authorizations.request_archive === true
+    && Boolean(props.onRequestArchive);
 
   return (
     <section className="space-y-5" data-surface="tenant-lifecycle-panel" data-tenant-lifecycle-state="ready" aria-labelledby="tenant-lifecycle-title">
@@ -287,7 +292,7 @@ export function TenantLifecyclePanel(props: TenantLifecyclePanelProps) {
             <p id="lifecycle-actions-help" className="mt-2 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
               Controls appear only for the current status and a supplied final authorization. The receiving workflow rechecks scope, version, owner guards, and audit requirements.
             </p>
-            {canPause || canResume || canSuspend ? (
+            {canPause || canResume || canSuspend || canArchive ? (
               <div className="mt-4 grid gap-2" aria-label="Authorized lifecycle requests">
                 {canPause ? (
                   <button type="button" className="min-h-11 w-full rounded-xl border px-4 py-2.5 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={TONE_STYLE.warning} aria-describedby="lifecycle-actions-help" onClick={() => props.onRequestPause?.(snapshot)}>
@@ -302,6 +307,11 @@ export function TenantLifecyclePanel(props: TenantLifecyclePanelProps) {
                 {canSuspend ? (
                   <button type="button" className="min-h-11 w-full rounded-xl border px-4 py-2.5 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={TONE_STYLE.danger} aria-describedby="lifecycle-actions-help" onClick={() => props.onRequestSuspend?.(snapshot)}>
                     Request tenant suspension
+                  </button>
+                ) : null}
+                {canArchive ? (
+                  <button type="button" className="min-h-11 w-full rounded-xl border px-4 py-2.5 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" style={TONE_STYLE.danger} aria-describedby="lifecycle-actions-help" onClick={() => props.onRequestArchive?.(snapshot)}>
+                    Request tenant archive
                   </button>
                 ) : null}
               </div>

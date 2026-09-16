@@ -428,7 +428,7 @@ export function QualityClient({ summary, leads, total, filters, businessTypeCoun
           <button type="button" className="btn-glass text-xs" title="Put only the selected rows into the AI queue." disabled={busy !== null || selectedIds.length === 0} onClick={() => queueAiBatch("selected-ai", batchInput(selectedIds))}>
             {busy === "selected-ai" ? "Sending..." : `Send Selected to AI Queue (${selectedIds.length})`}
           </button>
-          <HelpTip>Send to AI Queue means waiting for a background worker. Process AI Now runs verification immediately and should produce a completed AI outcome.</HelpTip>
+          <HelpTip side="left">Send to AI Queue means waiting for a background worker. Process AI Now runs verification immediately and should produce a completed AI outcome.</HelpTip>
           {message && <StatusNotice notice={message} compact />}
         </div>
       </section>

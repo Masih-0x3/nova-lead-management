@@ -45,6 +45,8 @@ export const INTERNAL_WORKER_ACTIONS = Object.freeze({
   enrichment: "enrichment:process",
   artifact: "artifact:process",
   score_recompute: "score_recompute:recompute",
+  connector_execution: "connector_execution:process",
+  agent_runtime: "agent_runtime:execute",
 } as const satisfies Readonly<Record<SchedulerWorkerName, string>>);
 export type InternalWorkerAction = (typeof INTERNAL_WORKER_ACTIONS)[SchedulerWorkerName];
 
@@ -339,7 +341,9 @@ function isValidLeaseGeneration(value: unknown): value is number {
 }
 
 function isSchedulerWorkerName(value: unknown): value is SchedulerWorkerName {
-  return value === "ai_verification" || value === "crawl" || value === "enrichment" || value === "artifact" || value === "score_recompute";
+  return value === "ai_verification" || value === "crawl" || value === "enrichment"
+    || value === "artifact" || value === "score_recompute" || value === "connector_execution"
+    || value === "agent_runtime";
 }
 
 function isInternalWorkerAction(value: unknown): value is InternalWorkerAction {

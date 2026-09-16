@@ -17,6 +17,7 @@
     "test:e2e:public": "node scripts/run-e2e.mjs public",
     "test:e2e:auth": "node scripts/run-e2e.mjs auth",
     "test:e2e:mutating": "node scripts/run-e2e.mjs mutating",
+    "test:e2e:acceptance": "node scripts/run-e2e.mjs acceptance",
     "test:e2e:launch": "node scripts/run-e2e.mjs launch",
     "release:check": "node scripts/release-check.mjs",
     "auth:supabase:check": "node scripts/supabase-auth-config.mjs",
@@ -25,6 +26,9 @@
     "db:import:supabase": "node scripts/import-supabase-data.mjs",
     "db:verify:recovery": "node scripts/verify-data-recovery.mjs",
     "local:seed": "node scripts/seed-local-tenant.mjs",
+    "local:seed:sqlite": "node scripts/seed-local-tenant-sqlite.mjs",
+    "local:tenancy:operator": "node scripts/local-tenant-operator.mjs",
+    "local:tenancy:compat": "node scripts/local-tenant-compat.mjs",
     "local:dispatch": "node scripts/run-local-workers.mjs"
   },
   "dependencies": {
@@ -34,7 +38,7 @@
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "better-sqlite3": "^12.9.0",
-    "next": "^16.2.6",
+    "next": "^16.3.3",
     "postgres": "^3.4.9",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
@@ -48,10 +52,11 @@
     "@types/node": "^24.13.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
-    "eslint-config-next": "^16.2.6",
+    "eslint-config-next": "^16.3.3",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.11"
   }
 }

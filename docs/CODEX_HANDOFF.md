@@ -1,152 +1,69 @@
 # Nova Trade Agent Handoff
 
-Current as of September 2, 2026. This document replaces the historical June/July handoff state. Older plans and audits remain useful history, but they are not the current task queue.
+Current as of September 14, 2026. This file and the [lean finish plan](plans/2026-08-29-lean-finish-plan.md) replace the historical June/July task queue. The old 318-card plan is reference material, not a backlog to restart.
 
 ## Start here
 
-- Workspace: `/home/Masih/Projects/nova-trade-lead-management`
-- GitHub: `https://github.com/Masih-0x3/nova-trade-lead-management`
-- Branch: `codex/nova-multitenant-integration`
-- Checkpoint base: `320fcb3` (`fix: tenant-scope bulk lead ai operations`)
-- Pre-push remote baseline: `58e58f81e6a9b80b87f4aaab428cbf3a703082ac`
-- This handoff is committed with the checkpoint it describes; use `git rev-parse HEAD` and `git status --short --branch` for its final SHA and live remote position.
-- Active plan: `docs/plans/2026-08-29-lean-finish-plan.md`
-- Product requirements: `docs/product-requirements-multi-tenant-lead-intelligence-platform.md`
+- Repository: `Masih-0x3/nova-trade-lead-management`.
+- Release history and final CI: [PR #5](https://github.com/Masih-0x3/nova-trade-lead-management/pull/5). Continue from current `main` after merge, not an archived worker branch.
+- Product scope: [multi-tenant lead intelligence requirements](product-requirements-multi-tenant-lead-intelligence-platform.md).
+- Read `AGENTS.md`, check `git status --short --branch`, and inspect overlapping edits before writing. Use Node 24; the system Node 22 is not the supported build/test runtime.
 
-The checkpoint includes the newest tenant-hardening and worker work. After the checkpoint, the only expected working-tree entry is the unrelated local `.commandcode/` directory: do not edit, stage, or commit it.
+The user authorized finishing the remaining release work with Devin CLI SWE-2 Max, establishing an appropriate staging rehearsal, committing, pushing, merging, and cleaning completed worktrees. That authorization does not enable production/customer enrollment, paid provider work, or automatic sending. Future agents must still follow the current user's requested scope.
 
-Do not stage, commit, push, deploy, run CI/CD, apply remote migrations, enable paid provider work, or mutate production unless the user explicitly asks. The present goal is a complete local application first.
+## Implemented product
 
-## What is implemented
+L-01 through L-08 implementation is integrated: local Supabase Auth/PostgreSQL and restricted worker roles; tenant provisioning, invitation acceptance and operations; document intake/extraction/evidence; business understanding and versioned ICP/play strategy; governed discovery/accounts/contacts/qualification; cited outreach copy/export and outcomes; authenticated product UI; and automated happy/degraded acceptance.
 
-The existing lead-management application is largely implemented and its current code gates are green. Recent work completed these areas:
+Tenant context, policy, budgets, leases, replay protection, and explicit human approval remain authoritative. A successful unit test or build does not substitute for authenticated acceptance, real service integration, or a production approval.
 
-- Tenant-safe lead reads, writes, ownership changes, quality actions, exclusions, lifecycle actions, outreach/demo actions, dashboard analytics, API usage, cache access, and score recomputation.
-- Compare-and-swap and lease protections for concurrency-sensitive lead, crawl, enrichment, AI-verification, and worker operations.
-- Fail-closed authorization at protected pages, settings/admin actions, exports, and worker routes.
-- Hardened authentication callback redirects.
-- Local SQLite tenant-membership administration with a durable mutation journal, tenant-scoped history, role assignment, and authorization checks.
-- PostgreSQL worker-dispatch migration, lease store, lease runtime, exact worker/action binding, generations, replay protection, cancellation, and restricted-role inspection.
-- Exact lazy lease resolution on all five worker routes:
-  - `/api/crawl/process-next`
-  - `/api/crawl/enrich-next`
-  - `/api/ai/verify-next`
-  - `/api/ai/artifacts/process-next`
-  - `/api/scores/recompute-stale`
-- Tenant-scoped canonical-place backfill, crawl/enrichment queueing, place cache, aggregates, and worker selection.
-- Windows-only durability tests are capability-gated instead of failing other platforms.
+PostgreSQL is the multi-tenant application's authority. SQLite remains the `DATABASE_URL`-absent compatibility path, not a replacement for Supabase Auth or PostgreSQL worker leases. The portable v4 JSON recovery contract covers 37 legacy tables and is not a complete backup of newer PostgreSQL product data.
 
-The branch history also contains foundations for tenant/workspace/RBAC, document intake and extraction, bounded agent execution, connector policy/runtime, lifecycle jobs, audit context, exports, deletion, support access, and private document storage. Treat these as foundations, not proof that their complete user-facing workflows are finished.
+## Completed engineering release work
 
-## What is not implemented or proven
+Four isolated Devin CLI SWE-2 Max lanes delivered full PostgreSQL application-schema recovery, expanded database CI and isolated staging, private Supabase Storage/ClamAV runtime integration, and supported dependency updates. Independent review also fixed pre-tenant audit persistence, provider request cancellation, actor attribution, fresh review-queue chronology, replay timestamps, citation/PDF validation, and destructive compatibility-rehearsal preflight.
 
-### Immediate local-runtime gap
+A GitHub `staging` environment now runs reproducible disposable infrastructure, not an always-on public URL. Its CI job depends on five independent prerequisite jobs: the release gate, disposable schema tests, self-provisioning database/native-recovery tests, restricted tenant-ops/auth-audit tests, and real Storage/ClamAV integration. No merge is accepted until all six jobs pass for the final candidate; use PR #5 for their live status rather than an older branch's green check.
 
-The code compiles, tests, and builds, but the authenticated application and durable workers have not yet been exercised end to end against a local Supabase stack.
+The engineering merge and staging rehearsal do not approve a production launch. Named-owner production qualification remains explicit below.
 
-To close that gap:
+## Current verification evidence
 
-1. Start a local Supabase Auth + PostgreSQL environment and apply the repository migrations locally.
-2. Configure local environment values without committing them.
-3. Seed an admin identity, tenant, workspace, membership, role binding, and policy.
-4. Provision the restricted worker lease issuer/resolver roles.
-5. Add a small local dispatcher that acquires a durable lease and calls the matching worker route.
-6. Run authenticated browser tests for admin and researcher paths, then exercise each worker route.
+September 14 accepted local evidence:
 
-Authentication is Supabase-only. Without Supabase configuration, public pages and the SQLite-backed application shell can run, but protected pages cannot be used. When `DATABASE_URL` is absent, application data falls back to `nosite-leads.db`; this does not replace Supabase Auth or the PostgreSQL worker lease path.
+- Final code candidate `9a90f00`: `release:check` passed TypeScript, ESLint, **4,519 tests**, production build, deployment-trace safety, and **5** public read-only browser tests. Its portable lane explicitly skips 39 environment-gated files (261 tests) and excludes three Windows-only files; those skips are not database proof.
+- Isolated Supabase staging applies **91/91** migrations, verifies restricted worker roles, and passes **2** happy/degraded acceptance, **26** admin, and **12** researcher browser checks with separate identities and verified owned-resource teardown. Portable PostgreSQL replay applies 89 of the same 91 files, excluding two Supabase-only migrations.
+- Independent real database checks passed **105** tenant-ops tests, **8** pre-tenant auth-audit tests, and **33** native PostgreSQL recovery tests. Recovery classifies all **120** migrated public tables; the portable legacy contract remains **37** tables.
+- Real private Storage/ClamAV integration passed **12/12**, including malware, expiry, tenant binding, and clean-document extraction. The final forced-cleanup probe left **zero new anonymous volumes**. Browser staging uses separate explicit local document backends, not the Storage/ClamAV stack.
+- Harness safety checks passed **27** staging selftests, **6** independent staging-preservation tests, **16** tenant-ops-runner tests, and **4** real-services-runner tests.
+- `npm audit` reports **zero vulnerabilities** across production and development dependencies after the supported updates.
+- Git-history secret-scan candidates were reviewed as deliberate test fixtures or non-secret task labels. The final incremental scan's three matches are two synthetic Auth UUIDs and one negative-test secret, not live credentials. This does not revoke credentials previously exposed in chat.
 
-Required worker runtime variables include:
+Use `npm run release:check` as the local gate. Database and authenticated browser rehearsals are separate requirements; environment-gated skips are not proof. The release plan will hold the final accepted evidence.
 
-- `TENANT_WORKER_LEASE_ISSUER_DATABASE_URL`
-- `TENANT_WORKER_LEASE_RESOLVER_DATABASE_URL`
+## Running and testing locally
 
-These are not yet documented in `.env.example`. Missing or malformed worker configuration correctly results in `401` and zero work; there is no SQLite or application-role fallback.
+See [TESTING.md](TESTING.md), [STAGING.md](STAGING.md), [DATA_RECOVERY_POSTGRES.md](DATA_RECOVERY_POSTGRES.md), and `.env.example`. With Node 24 and a Docker-compatible daemon, `node scripts/staging-rehearsal.mjs rehearse` creates, tests, and tears down an isolated staging instance. It does not overwrite the development stack or require cloud credentials. Only its sanitized receipt is uploadable.
 
-Initial provisioning still explicitly reports these blockers in `src/lib/tenancy/provisioning.ts`:
+For an existing production-mode local server, use the canonical `http://localhost:3000` origin consistently. Do not weaken Secure cookies to accommodate Playwright's differing loopback handling. L-08 runs with `E2E_ACCEPTANCE=1`; admin smoke excludes `Researcher Smoke Test`, and the researcher spec must run with its own researcher credentials. Running all role assertions under one admin identity is invalid.
 
-- `OWNER_ACCEPTANCE_REQUIRED`
-- `INVITATION_RECORD_NOT_IMPLEMENTED`
-- `INVITATION_DELIVERY_NOT_IMPLEMENTED`
-- `AUTH_USER_CREATION_NOT_IMPLEMENTED`
+Keep `.env.local`, Supabase local keys/certificates, SQLite databases/sidecars, auth storage state, raw traces, and recovery archives private and ignored. Missing authentication or worker-role configuration must remain fail-closed. Required lease variables are `TENANT_WORKER_LEASE_ISSUER_DATABASE_URL` and `TENANT_WORKER_LEASE_RESOLVER_DATABASE_URL`.
 
-### Broader product gap
+## Cleanup and historical work
 
-The expanded multi-tenant lead-intelligence product is not “done except for the database.” Major end-to-end product work remains in:
+Nova's redundant hourly maintenance automation is disabled. Completed feature/release worktrees and their terminals were closed after private checkout archives and verified all-ref Git bundles were created. Original local application/PostgreSQL data is preserved; ignored credentials, Auth state, and database archives do not belong in GitHub artifacts. Other repositories and their active terminals are outside this cleanup.
 
-- invitation acceptance and full tenant operations;
-- document upload, scanning, extraction, evidence review, and citations;
-- business understanding, adaptive questions, ICPs, and lead plays;
-- generalized connectors, canonical accounts, contacts, and buying centers;
-- explainable qualification and reusable review queues;
-- cited outreach approval/export and outcome learning;
-- the complete authenticated UI over real services;
-- local acceptance, then staging/release work after explicit authorization.
+The historical `codex/nova-g006c2a-anchor-repair` commit `1d2931d` was explicitly rejected in `cfbb650` and stopped in `a0c1d82`: it breaks upgraded replay after legitimate writes and lacks continuous proof-to-write binding. It must remain archival history, not be merged as part of cleanup. Its underlying primitive has no production caller. Other completed branch tips can be removed only after ancestry or patch-equivalence checks and recoverable preservation.
 
-The existing lead-management application is much closer to completion than that expanded product vision. Do not conflate the two scopes.
-
-## Runtime configuration
-
-Copy `.env.example` to an ignored `.env.local` and use local-only values. Never commit credentials. Relevant configuration includes:
-
-- `DATABASE_URL` and `POSTGRES_MAX_CONNECTIONS`
-- `NEXT_PUBLIC_APP_URL`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `NOSITE_BOOTSTRAP_ADMIN_EMAIL`
-- `NOSITE_ENCRYPTION_SECRET`
-- `WORKER_CRON_SECRET`
-- the two worker lease database URLs above
-- optional Google Places, Google Maps, and OpenAI keys when real provider calls are intentionally enabled
-
-Real provider credentials are not required for the first local structural/authentication pass. Keep paid work disabled until explicitly approved.
-
-## Last verified state
-
-On September 2, 2026, with Node 24:
-
-- TypeScript passed.
-- Full ESLint passed.
-- Vitest passed: 265 files, 3,990 tests; 16 files and 186 environment/capability-dependent tests skipped.
-- Next.js production build passed and generated all 11 static pages.
-- `git diff --check` passed.
-- The Git index was empty.
-- `/login` returned `200` under `next start`.
-- `/dashboard` returned the expected unauthenticated `307` redirect.
-- `/api/health` returned `503` because required local deployment/auth/runtime configuration was absent.
-
-Use the repository's Node 24-compatible commands:
-
-```bash
-npx -y node@24 ./node_modules/typescript/bin/tsc --noEmit
-npx -y node@24 ./node_modules/eslint/bin/eslint.js .
-npx -y node@24 ./node_modules/vitest/vitest.mjs run
-npx -y node@24 ./node_modules/next/dist/bin/next build
-git diff --check
-```
-
-Run focused tests while editing. Run the full set after a shared foundation or complete workflow changes; do not rerun the entire gate after every tiny edit.
-
-## Git and secret safety
-
-A September 2 pre-push scan found:
-
-- no copy of the exposed callback token in the working tree or outgoing history;
-- no committed `.env`, credential, private-key, or secret files;
-- no outgoing blobs larger than 5 MB;
-- only deliberate fake credential strings inside security tests;
-- an empty staging index.
-
-The GitHub/CodeRabbit credential pasted into the prior conversation must still be revoked or rotated because chat exposure is enough to compromise it.
-
-GitHub will not transfer ignored local state such as `.env.local`, SQLite databases, Supabase local metadata, or provider credentials. Transfer required local secrets through an approved secret channel and recreate disposable local data where possible.
+The GitHub/CodeRabbit credential exposed in an earlier conversation still requires owner-confirmed revocation/rotation; absence from Git history does not undo chat exposure.
 
 ## Next agent workflow
 
-1. Read this file and the lean finish plan.
-2. Run `git status --short --branch` and inspect overlapping changes before editing.
-3. Take the first ready outcome that does not overlap another active writer.
-4. Implement the smallest complete vertical slice and run its focused checks.
-5. Report only changed files, checks, and a real blocker. Update the plan only when an outcome changes state.
+Do not restart completed L-01–L-08 work or exhaust old implementation cards. After PR #5 merges, the next distinct task is production qualification with a named owner:
 
-The immediate priority is `L-01` in the lean finish plan: make the current application genuinely usable locally with local Supabase, seeded tenant identity, worker roles, dispatcher, and authenticated browser proof.
+1. Rotate/revoke the previously exposed GitHub/CodeRabbit credential and confirm ownership.
+2. Select the actual deployment target; provision production-only secrets, a least-privilege application role, restricted worker roles, provider budgets, private Storage, and the scanner. Verify the managed Storage target's signed-upload lifetime and private connectivity.
+3. Rehearse external Supabase Auth/Storage/configuration/key recovery as well as the application-schema backup on production-sized fixtures. The native public-schema archive alone is not complete Supabase disaster recovery.
+4. Record the named owner's go/no-go before deployment or design-partner enrollment. No paid provider, customer onboarding, or automatic sending was enabled by this engineering release.
+
+See [deployment qualification](VERCEL_SUPABASE_DEPLOYMENT.md). Automatic outreach sending, self-serve billing/signup, broad CRM synchronization, speculative connectors, and unmeasured performance work remain deferred.

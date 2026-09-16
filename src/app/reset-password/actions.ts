@@ -21,6 +21,7 @@ export async function updatePasswordAction(formData: FormData) {
       category: "auth",
       severity: "error",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "missing_auth_config" },
     });
     redirect("/reset-password?error=missing_config");
@@ -37,6 +38,7 @@ export async function updatePasswordAction(formData: FormData) {
       category: "auth",
       severity: "warn",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "invalid_password_form" },
     });
     redirect(`/reset-password?error=${encodeURIComponent(parsed.error.issues[0]?.message ?? "Invalid password.")}`);
@@ -51,6 +53,7 @@ export async function updatePasswordAction(formData: FormData) {
       category: "auth",
       severity: "warn",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "expired_or_missing_session", error: userError?.message ?? null },
     });
     redirect("/forgot-password?error=expired_link");
@@ -67,6 +70,7 @@ export async function updatePasswordAction(formData: FormData) {
       severity: "warn",
       entityType: "auth",
       entityId: data.user.id,
+      scope: "platform",
       actor: { userId: data.user.id, email: data.user.email ?? null },
       metadata: { email: data.user.email ?? null, reason: "supabase_update_error", error: error.message },
     });
@@ -79,6 +83,7 @@ export async function updatePasswordAction(formData: FormData) {
     severity: "info",
     entityType: "auth",
     entityId: data.user.id,
+    scope: "platform",
     actor: { userId: data.user.id, email: data.user.email ?? null },
     metadata: { email: data.user.email ?? null },
   });

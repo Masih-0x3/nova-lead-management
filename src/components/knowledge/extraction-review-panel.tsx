@@ -80,9 +80,16 @@ function words(value: string): string {
 }
 
 function locatorLabel(locator: RenderSafeSourceLocator): string {
-  return locator.kind === "line_range"
-    ? `${locator.label} · lines ${locator.startLine}–${locator.endLine}`
-    : `${locator.label} · row ${locator.row}`;
+  switch (locator.kind) {
+    case "line_range":
+      return `${locator.label} · lines ${locator.startLine}–${locator.endLine}`;
+    case "row":
+      return `${locator.label} · row ${locator.row}`;
+    case "page":
+      return `${locator.label} · block ${locator.block}`;
+    case "section":
+      return locator.label;
+  }
 }
 
 function confidenceLabel(basisPoints: number): string {

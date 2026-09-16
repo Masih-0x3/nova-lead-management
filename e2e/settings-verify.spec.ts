@@ -22,26 +22,26 @@ test("Settings controls verification", async ({ page }) => {
 
     const cacheTtl = page.getByText("Cache TTL (days)").locator("..").locator("input");
     const stageB = page.getByText("Stage-B Min Score").locator("..").locator("input");
-    const maxAtmosphere = page.getByText("Max Atmosphere / Run").locator("..").locator("input");
-    const costEngineCheckbox = page.getByRole("checkbox", { name: /Enable pricing-accurate cost engine v2/i });
+    const aiBatchLimit = page.getByText("AI Batch Limit").locator("..").locator("input");
+    const aiEnabledCheckbox = page.getByRole("checkbox", { name: /Enable AI lead verification/i });
     const backfillBtn = page.getByRole("button", { name: "Backfill Canonical Places" });
 
     const hasCacheTtl = (await cacheTtl.count()) > 0;
     const hasStageB = (await stageB.count()) > 0;
-    const hasMaxAtmosphere = (await maxAtmosphere.count()) > 0;
-    const hasCostEngine = (await costEngineCheckbox.count()) > 0;
+    const hasAiBatchLimit = (await aiBatchLimit.count()) > 0;
+    const hasAiEnabled = (await aiEnabledCheckbox.count()) > 0;
     const hasBackfill = (await backfillBtn.count()) > 0;
 
     results.push({ step: "Cache TTL (days)", pass: hasCacheTtl });
     results.push({ step: "Stage-B Min Score", pass: hasStageB });
-    results.push({ step: "Max Atmosphere / Run", pass: hasMaxAtmosphere });
-    results.push({ step: "Enable pricing-accurate cost engine v2", pass: hasCostEngine });
+    results.push({ step: "AI Batch Limit", pass: hasAiBatchLimit });
+    results.push({ step: "Enable AI lead verification", pass: hasAiEnabled });
     results.push({ step: "Backfill Canonical Places", pass: hasBackfill });
 
     const origCache = await cacheTtl.inputValue();
     const origStageB = await stageB.inputValue();
-    const origAtmosphere = await maxAtmosphere.inputValue();
-    const origChecked = await costEngineCheckbox.isChecked();
+    const origBatchLimit = await aiBatchLimit.inputValue();
+    const origChecked = await aiEnabledCheckbox.isChecked();
 
     await cacheTtl.fill("99");
     await expect(cacheTtl).toHaveValue("99");
@@ -55,17 +55,17 @@ test("Settings controls verification", async ({ page }) => {
     await expect(stageB).toHaveValue(origStageB);
     results.push({ step: "Stage-B Min Score: change and revert", pass: true });
 
-    await maxAtmosphere.fill("50");
-    await expect(maxAtmosphere).toHaveValue("50");
-    await maxAtmosphere.fill(origAtmosphere);
-    await expect(maxAtmosphere).toHaveValue(origAtmosphere);
-    results.push({ step: "Max Atmosphere: change and revert", pass: true });
+    await aiBatchLimit.fill("50");
+    await expect(aiBatchLimit).toHaveValue("50");
+    await aiBatchLimit.fill(origBatchLimit);
+    await expect(aiBatchLimit).toHaveValue(origBatchLimit);
+    results.push({ step: "AI Batch Limit: change and revert", pass: true });
 
-    await costEngineCheckbox.click();
-    await expect(costEngineCheckbox).toBeChecked({ checked: !origChecked });
-    await costEngineCheckbox.click();
-    await expect(costEngineCheckbox).toBeChecked({ checked: origChecked });
-    results.push({ step: "Cost engine checkbox: toggle and revert", pass: true });
+    await aiEnabledCheckbox.click();
+    await expect(aiEnabledCheckbox).toBeChecked({ checked: !origChecked });
+    await aiEnabledCheckbox.click();
+    await expect(aiEnabledCheckbox).toBeChecked({ checked: origChecked });
+    results.push({ step: "AI enabled checkbox: toggle and revert", pass: true });
 
     const saveBtn = page.getByRole("button", { name: "Save Settings" });
     await expect(saveBtn).toBeVisible();

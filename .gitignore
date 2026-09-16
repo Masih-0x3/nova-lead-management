@@ -53,6 +53,8 @@ next-env.d.ts
 *.db-journal
 *.db-shm
 *.db-wal
+*.sqlite3
+*.db.pre-backfill
 
 # Local production migration exports
 /data-export/
@@ -61,3 +63,11 @@ next-env.d.ts
 *.dump
 *.sql.gz
 .env*.local
+supabase/local/certs/
+supabase/local/.env
+
+# Acceptance-suite state handoff between specs (regenerated each run)
+e2e/.acceptance-state.json
+
+# Staging rehearsal artifacts (sanitized receipt + app log)
+/staging-artifacts/

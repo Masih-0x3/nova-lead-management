@@ -35,6 +35,15 @@ export type ConnectorFixturePageExecutor = (context: Readonly<{
   signal: AbortSignal;
 }>) => ConnectorFixturePage | Promise<ConnectorFixturePage>;
 
+/**
+ * Resolves the fixture executor for a source card, or null when no approved
+ * fixture dataset is bound to the card. Returning null must idle the unit
+ * before it is claimed; it must never fabricate a page.
+ */
+export type ConnectorFixtureExecutorResolver = (
+  sourceCardId: string,
+) => ConnectorFixturePageExecutor | null | undefined | Promise<ConnectorFixturePageExecutor | null | undefined>;
+
 export interface ConnectorRunPageRequest {
   readonly runId: string;
   readonly unitId: string;

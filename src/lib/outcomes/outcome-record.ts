@@ -25,6 +25,7 @@ export type OutcomeTaxonomy =
   | "won"
   | "lost"
   | "not_interested"
+  | "disqualified"
   | "unknown";
 
 export type OutcomeSource = Readonly<{
@@ -143,7 +144,8 @@ const DRAFT_VERSION = /^outreach-draft-version:[0-9a-f]{64}$/u;
 const OUTCOME_VERSION = /^outcome-version:[0-9a-f]{64}$/u;
 const TAXONOMY = new Set<OutcomeTaxonomy>([
   "copied", "exported", "sent_manually", "delivery_unknown", "bounced", "unknown_bounce", "opted_out",
-  "complaint", "replied", "meeting_set", "opportunity", "won", "lost", "not_interested", "unknown",
+  "complaint", "replied", "meeting_set", "opportunity", "won", "lost", "not_interested", "disqualified",
+  "unknown",
 ]);
 const CHANNELS = new Set(["email", "phone", "sms", "social", "in_person", "other", "none"]);
 const ATTRIBUTION_KINDS = new Set(["direct", "assisted", "unknown"]);
@@ -406,7 +408,7 @@ function contentPayload(record: Pick<OutcomeRecord,
   return record;
 }
 
-function parseOutcomeRecord(value: unknown): OutcomeRecord | null {
+export function parseOutcomeRecord(value: unknown): OutcomeRecord | null {
   const record = exactRecord(value, RECORD_FIELDS);
   if (!record || record.schemaVersion !== OUTCOME_RECORD_SCHEMA_VERSION) return null;
   const scope = parseScope(record);

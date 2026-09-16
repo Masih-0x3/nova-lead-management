@@ -24,10 +24,38 @@ const queryMocks = vi.hoisted(() => ({
 const cacheMocks = vi.hoisted(() => ({ revalidatePath: vi.fn() }));
 const supabaseMocks = vi.hoisted(() => ({ createSupabaseAdminClient: vi.fn() }));
 
+const tenancyMocks = vi.hoisted(() => ({
+  requireTenantPermission: vi.fn(),
+  runWithTenantContext: vi.fn((_session: unknown, _correlationId: unknown, fn: () => unknown) => fn()),
+  withTenantDbContext: vi.fn((fn: (db: object) => unknown) => fn({ kind: "scoped-db" })),
+  createTenantQueryRepository: vi.fn(),
+  listMemberships: vi.fn(),
+  available: vi.fn(),
+  createService: vi.fn(),
+  assignMemberRole: vi.fn(),
+  disableMember: vi.fn(),
+  reactivateMember: vi.fn(),
+  revokeMember: vi.fn(),
+  removeMember: vi.fn(),
+}));
+
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => cacheMocks);
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ requirePermission: authMocks.requirePermission }));
+vi.mock("@/lib/db", () => ({ withTenantDbContext: tenancyMocks.withTenantDbContext }));
+vi.mock("@/lib/tenancy/context", () => ({ runWithTenantContext: tenancyMocks.runWithTenantContext }));
+vi.mock("@/lib/tenancy/queries", () => ({
+  createTenantQueryRepository: tenancyMocks.createTenantQueryRepository,
+}));
+vi.mock("@/lib/tenancy/local-membership-administration", () => ({
+  isLocalMembershipAdministrationAvailable: tenancyMocks.available,
+  createLocalTenantMembershipAdministrationService: tenancyMocks.createService,
+}));
+vi.mock("@/lib/tenancy/authorize", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tenancy/authorize")>();
+  return { ...actual, requireTenantPermission: tenancyMocks.requireTenantPermission };
+});
 vi.mock("@/lib/app-users", () => ({
   createAppUserForAuthUser: appUserMocks.createAppUserForAuthUser,
   getAppUserByUserId: appUserMocks.getAppUserByUserId,
@@ -50,17 +78,85 @@ import {
   updateUserTeamAction,
 } from "@/lib/users/actions";
 
+const TENANT_ID = "00000000-0000-4000-8000-000000000001";
+const ACTOR_ID = "20000000-0000-4000-8000-000000000001";
+const TARGET_ID = "20000000-0000-4000-8000-000000000002";
+const TARGET_MEMBERSHIP_ID = "30000000-0000-4000-8000-000000000002";
+
+const TENANT_SESSION = Object.freeze({
+  userId: ACTOR_ID,
+  email: "admin@example.com",
+  displayName: "Admin",
+  tenantId: TENANT_ID,
+  workspaceId: null,
+  membershipId: "30000000-0000-4000-8000-000000000001",
+  role: "owner" as const,
+  roleBindingId: "40000000-0000-4000-8000-000000000001",
+});
+
+function membership(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: TARGET_MEMBERSHIP_ID,
+    tenantId: TENANT_ID,
+    authIdentityId: TARGET_ID,
+    pendingIdentityRefHash: null,
+    workspaceId: null,
+    status: "active" as const,
+    invitedByMembershipId: TENANT_SESSION.membershipId,
+    createdAt: "2026-08-30T00:00:00.000Z",
+    updatedAt: "2026-08-30T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   authMocks.requirePermission.mockResolvedValue({
-    userId: "platform-admin-1",
+    userId: ACTOR_ID,
     email: "admin@example.com",
     role: "admin",
   });
+  tenancyMocks.requireTenantPermission.mockResolvedValue(TENANT_SESSION);
+  tenancyMocks.createTenantQueryRepository.mockReturnValue({
+    listMemberships: tenancyMocks.listMemberships,
+  });
+  tenancyMocks.listMemberships.mockResolvedValue([membership()]);
+  tenancyMocks.available.mockReturnValue(true);
+  tenancyMocks.createService.mockReturnValue({
+    assignMemberRole: tenancyMocks.assignMemberRole,
+    disableMember: tenancyMocks.disableMember,
+    reactivateMember: tenancyMocks.reactivateMember,
+    revokeMember: tenancyMocks.revokeMember,
+    removeMember: tenancyMocks.removeMember,
+  });
+  for (const mock of [
+    tenancyMocks.assignMemberRole,
+    tenancyMocks.disableMember,
+    tenancyMocks.reactivateMember,
+    tenancyMocks.revokeMember,
+    tenancyMocks.removeMember,
+  ]) {
+    mock.mockResolvedValue({
+      code: "OK",
+      tenantId: TENANT_ID,
+      operation: "op",
+      membership: { membershipId: TARGET_MEMBERSHIP_ID },
+      replacementMembership: null,
+    });
+  }
 });
 
 function expectNoGlobalUserSideEffects(): void {
+  expectNoGlobalUserWrites();
   expect(queryMocks.ensureDbReady).not.toHaveBeenCalled();
+}
+
+function expectNoGlobalUserWrites(): void {
+  expectNoGlobalUserWritesExceptRevalidate();
+  expect(cacheMocks.revalidatePath).not.toHaveBeenCalled();
+}
+
+function expectNoGlobalUserWritesExceptRevalidate(): void {
   expect(appUserMocks.createAppUserForAuthUser).not.toHaveBeenCalled();
   expect(appUserMocks.getAppUserByUserId).not.toHaveBeenCalled();
   expect(appUserMocks.listAppUsers).not.toHaveBeenCalled();
@@ -70,7 +166,6 @@ function expectNoGlobalUserSideEffects(): void {
   expect(queryMocks.replaceUserMarketAccess).not.toHaveBeenCalled();
   expect(queryMocks.listUserMarketAccessForUsers).not.toHaveBeenCalled();
   expect(queryMocks.createAuditLog).not.toHaveBeenCalled();
-  expect(cacheMocks.revalidatePath).not.toHaveBeenCalled();
   expect(supabaseMocks.createSupabaseAdminClient).not.toHaveBeenCalled();
 }
 
@@ -125,22 +220,86 @@ describe("platform-global user mutation guards", () => {
   it.each([
     ["existing target", "researcher-1"],
     ["unknown target", "missing-user"],
-  ])("fails role changes closed with a non-enumerating result for an %s", async (_label, userId) => {
+  ])("returns one non-enumerating result when an %s has no canonical membership", async (_label, userId) => {
     await expect(updateUserRoleAction(userId, "admin")).resolves.toEqual({
       error: "User not found or unavailable.",
     });
 
     expect(authMocks.requirePermission).toHaveBeenCalledWith("users:manage");
-    expectNoGlobalUserSideEffects();
+    expect(tenancyMocks.requireTenantPermission).toHaveBeenCalledWith(
+      {},
+      "role:assign",
+      expect.objectContaining({ action: "users.role" }),
+    );
+    expect(tenancyMocks.assignMemberRole).not.toHaveBeenCalled();
+    expectNoGlobalUserWrites();
   });
 
-  it("fails status changes closed before database or provider side effects", async () => {
+  it("delegates role changes to the canonical membership-role adapter", async () => {
+    await expect(updateUserRoleAction(TARGET_ID, "admin")).resolves.toEqual({ success: true });
+
+    expect(tenancyMocks.assignMemberRole).toHaveBeenCalledWith(TENANT_SESSION, {
+      membershipId: TARGET_MEMBERSHIP_ID,
+      role: "admin",
+      reasonCode: "role_change",
+      correlationId: expect.stringMatching(/^user-role:[0-9a-f-]+$/),
+      idempotencyKey: expect.stringMatching(/^user-role\.[0-9a-f-]+$/),
+    });
+    expect(cacheMocks.revalidatePath).toHaveBeenCalledWith("/users");
+    expectNoGlobalUserWritesExceptRevalidate();
+  });
+
+  it("returns one non-enumerating result when a user has no canonical membership for a status change", async () => {
     await expect(updateUserStatusAction("researcher-1", "disabled")).resolves.toEqual({
       error: "User not found or unavailable.",
     });
 
     expect(authMocks.requirePermission).toHaveBeenCalledWith("users:manage");
-    expectNoGlobalUserSideEffects();
+    expect(tenancyMocks.requireTenantPermission).toHaveBeenCalledWith(
+      {},
+      "membership:manage",
+      expect.objectContaining({ action: "users.status" }),
+    );
+    expect(tenancyMocks.disableMember).not.toHaveBeenCalled();
+    expect(tenancyMocks.revokeMember).not.toHaveBeenCalled();
+    expectNoGlobalUserWrites();
+  });
+
+  it.each([
+    ["active", "disabled", "disableMember", "membership_disable"],
+    ["pending", "disabled", "revokeMember", "membership_revoke"],
+    ["disabled", "active", "reactivateMember", "membership_reactivate"],
+  ] as const)("maps a %s membership + %s request to %s", async (membershipStatus, requested, method, reasonCode) => {
+    tenancyMocks.listMemberships.mockResolvedValueOnce([membership({ status: membershipStatus })]);
+
+    await expect(updateUserStatusAction(TARGET_ID, requested)).resolves.toEqual({ success: true });
+
+    const serviceMock = tenancyMocks[method];
+    expect(serviceMock).toHaveBeenCalledWith(TENANT_SESSION, {
+      membershipId: TARGET_MEMBERSHIP_ID,
+      reasonCode,
+      correlationId: expect.stringMatching(/^user-status:[0-9a-f-]+$/),
+      idempotencyKey: expect.stringMatching(/^user-status\.[0-9a-f-]+$/),
+    });
+    expect(cacheMocks.revalidatePath).toHaveBeenCalledWith("/users");
+  });
+
+  it.each([
+    ["active", "active"],
+    ["disabled", "disabled"],
+    ["pending", "active"],
+    ["suspended", "active"],
+  ] as const)("returns one non-enumerating result for a no-op %s membership + %s request", async (membershipStatus, requested) => {
+    tenancyMocks.listMemberships.mockResolvedValueOnce([membership({ status: membershipStatus })]);
+
+    await expect(updateUserStatusAction(TARGET_ID, requested)).resolves.toEqual({
+      error: "User not found or unavailable.",
+    });
+
+    expect(tenancyMocks.disableMember).not.toHaveBeenCalled();
+    expect(tenancyMocks.reactivateMember).not.toHaveBeenCalled();
+    expect(tenancyMocks.revokeMember).not.toHaveBeenCalled();
+    expectNoGlobalUserWrites();
   });
 
   it("fails team changes closed before database or provider side effects", async () => {

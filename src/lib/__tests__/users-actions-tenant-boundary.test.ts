@@ -36,6 +36,21 @@ const repositoryMocks = vi.hoisted(() => ({
   listMemberships: vi.fn(),
 }));
 
+const membershipServiceMocks = vi.hoisted(() => ({
+  available: vi.fn(),
+  createService: vi.fn(),
+  removeMember: vi.fn(),
+  disableMember: vi.fn(),
+  reactivateMember: vi.fn(),
+  revokeMember: vi.fn(),
+  assignMemberRole: vi.fn(),
+}));
+
+const pgMembershipMocks = vi.hoisted(() => ({
+  createService: vi.fn(),
+  removeMember: vi.fn(),
+}));
+
 const supabaseMocks = vi.hoisted(() => ({
   createSupabaseAdminClient: vi.fn(),
 }));
@@ -51,6 +66,13 @@ vi.mock("@/lib/db/queries", () => queryMocks);
 vi.mock("@/lib/tenancy/context", () => ({ runWithTenantContext: contextMocks.runWithTenantContext }));
 vi.mock("@/lib/tenancy/queries", () => ({
   createTenantQueryRepository: repositoryMocks.createTenantQueryRepository,
+}));
+vi.mock("@/lib/tenancy/local-membership-administration", () => ({
+  isLocalMembershipAdministrationAvailable: membershipServiceMocks.available,
+  createLocalTenantMembershipAdministrationService: membershipServiceMocks.createService,
+}));
+vi.mock("@/lib/tenancy/postgres-membership-administration", () => ({
+  createPostgresTenantMembershipAdministrationService: pgMembershipMocks.createService,
 }));
 vi.mock("@/lib/tenancy/authorize", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/tenancy/authorize")>();
@@ -109,10 +131,25 @@ beforeEach(() => {
   });
   repositoryMocks.listMemberships.mockReset();
   repositoryMocks.listMemberships.mockResolvedValue([membership()]);
+  membershipServiceMocks.available.mockReturnValue(true);
+  membershipServiceMocks.createService.mockReturnValue({
+    removeMember: membershipServiceMocks.removeMember,
+    disableMember: membershipServiceMocks.disableMember,
+    reactivateMember: membershipServiceMocks.reactivateMember,
+    revokeMember: membershipServiceMocks.revokeMember,
+    assignMemberRole: membershipServiceMocks.assignMemberRole,
+  });
+  membershipServiceMocks.removeMember.mockResolvedValue({
+    code: "OK",
+    tenantId: TENANT_A,
+    operation: "remove",
+    membership: { membershipId: TARGET_MEMBERSHIP_ID, status: "removed" },
+    replacementMembership: null,
+  });
 });
 
 describe("remove user tenant boundary", () => {
-  it("binds canonical membership management to the exact tenant and fails closed before global deletion", async () => {
+  it("binds canonical membership removal to the exact tenant and never touches global identity records", async () => {
     const selector = { tenantId: TENANT_A, workspaceId: WORKSPACE_A };
 
     const result = await removeUserAction(TARGET_ID, selector);
@@ -134,6 +171,10 @@ describe("remove user tenant boundary", () => {
       resource: null,
     };
     expect(authorizationOptions.policyEvaluator(policyContext)).toEqual({ allowed: true, context: policyContext });
+    for (const role of ["researcher", "reviewer", "strategist_manager", "outreach_operator", "analyst_read_only"] as const) {
+      const denied = { ...policyContext, role };
+      expect(authorizationOptions.policyEvaluator(denied)).toEqual({ allowed: false, context: denied });
+    }
     expect(contextMocks.runWithTenantContext).toHaveBeenCalledWith(
       TENANT_SESSION,
       expect.stringMatching(/^user-remove:[0-9a-f-]+$/),
@@ -142,12 +183,52 @@ describe("remove user tenant boundary", () => {
     expect(contextMocks.withTenantDbContext).toHaveBeenCalledOnce();
     expect(repositoryMocks.createTenantQueryRepository).toHaveBeenCalledWith({ kind: "scoped-db" });
     expect(repositoryMocks.listMemberships).toHaveBeenCalledWith(TENANT_A);
+    expect(membershipServiceMocks.removeMember).toHaveBeenCalledWith(TENANT_SESSION, {
+      membershipId: TARGET_MEMBERSHIP_ID,
+      reasonCode: "membership_remove",
+      correlationId: expect.stringMatching(/^user-remove:[0-9a-f-]+$/),
+      idempotencyKey: expect.stringMatching(/^user-remove\.[0-9a-f-]+$/),
+    });
+    expect(cacheMocks.revalidatePath).toHaveBeenCalledWith("/users");
     expect(supabaseMocks.createSupabaseAdminClient).not.toHaveBeenCalled();
     expect(appUserMocks.getAppUserByUserId).not.toHaveBeenCalled();
     expect(queryMocks.createAuditLog).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      error: "User not found or unavailable.",
+    expect(result).toEqual({ success: true });
+  });
+
+  it("dispatches the canonical mutation to the Postgres membership service when PostgreSQL is configured", async () => {
+    membershipServiceMocks.available.mockReturnValue(false);
+    pgMembershipMocks.createService.mockReturnValue({ removeMember: pgMembershipMocks.removeMember });
+    pgMembershipMocks.removeMember.mockResolvedValue({
+      code: "OK",
+      tenantId: TENANT_A,
+      operation: "remove",
+      membership: { membershipId: TARGET_MEMBERSHIP_ID, status: "removed" },
+      replacementMembership: null,
     });
+
+    const result = await removeUserAction(TARGET_ID, { tenantId: TENANT_A });
+
+    expect(result).toEqual({ success: true });
+    expect(pgMembershipMocks.createService).toHaveBeenCalled();
+    expect(membershipServiceMocks.createService).not.toHaveBeenCalled();
+    expect(pgMembershipMocks.removeMember).toHaveBeenCalledWith(TENANT_SESSION, {
+      membershipId: TARGET_MEMBERSHIP_ID,
+      reasonCode: "membership_remove",
+      correlationId: expect.stringMatching(/^user-remove:[0-9a-f-]+$/),
+      idempotencyKey: expect.stringMatching(/^user-remove\.[0-9a-f-]+$/),
+    });
+    expect(cacheMocks.revalidatePath).toHaveBeenCalledWith("/users");
+  });
+
+  it("collapses canonical service failures to the non-enumerating result", async () => {
+    membershipServiceMocks.removeMember.mockRejectedValue(new Error("backend unavailable"));
+
+    const result = await removeUserAction(TARGET_ID, { tenantId: TENANT_A });
+
+    expect(result).toEqual({ error: "User not found or unavailable." });
+    expect(cacheMocks.revalidatePath).not.toHaveBeenCalled();
+    expect(appUserMocks.getAppUserByUserId).not.toHaveBeenCalled();
   });
 
   it("fails before tenant database access when legacy and tenant identities diverge", async () => {

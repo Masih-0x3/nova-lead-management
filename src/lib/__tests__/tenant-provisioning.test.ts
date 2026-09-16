@@ -5,6 +5,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { SCHEMA_SQL } from "@/lib/db/schema";
+import { TENANT_INVITATION_LOCAL_DDL } from "@/lib/tenancy/tenant-invitation-schema";
 import type { DbClient } from "@/lib/db";
 import {
   createTenantQueryRepository,
@@ -38,6 +39,7 @@ const ROLE_BINDING_ID = "40000000-0000-4000-8000-000000000001";
 const MISMATCHED_ROLE_BINDING_ID = "40000000-0000-4000-8000-000000000099";
 const REQUEST_ID = "60000000-0000-4000-8000-000000000001";
 const AUDIT_ID = "70000000-0000-4000-8000-000000000001";
+const INVITATION_ID = "80000000-0000-4000-8000-000000000001";
 
 const openDatabases: Database.Database[] = [];
 
@@ -190,6 +192,7 @@ function createDb(): { database: Database.Database; client: DbClient } {
   const database = new Database(":memory:");
   database.pragma("foreign_keys = ON");
   database.exec(SCHEMA_SQL);
+  database.exec(TENANT_INVITATION_LOCAL_DDL);
   openDatabases.push(database);
   const client: DbClient = {
     prepare(query) {
@@ -271,6 +274,7 @@ function createIdFactory(): ProvisioningIdFactory {
     ["membership", MEMBERSHIP_ID],
     ["role_binding", ROLE_BINDING_ID],
     ["audit", AUDIT_ID],
+    ["invitation", INVITATION_ID],
   ] as const);
   return { next: (kind) => ids.get(kind)! };
 }

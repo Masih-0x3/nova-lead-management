@@ -1,13 +1,16 @@
 "use client";
 
 import { AsyncState } from "@/components/async-state";
-import {
-  ADAPTIVE_QUESTION_POLICY_VERSION,
-  type AdaptiveQuestionSession,
-  type PlannedAdaptiveQuestion,
-  type QuestionAnswerRecord,
-  type QuestionRepeatReason,
+import type {
+  AdaptiveQuestionSession,
+  PlannedAdaptiveQuestion,
+  QuestionAnswerRecord,
+  QuestionRepeatReason,
 } from "@/lib/understanding/question-planner";
+
+// Mirrors ADAPTIVE_QUESTION_POLICY_VERSION from question-planner — the lib
+// module pulls Node builtins and cannot be value-imported into a client chunk.
+const EXPECTED_QUESTION_POLICY_VERSION: AdaptiveQuestionSession["policyVersion"] = "adaptive-question-value-v1";
 
 type ReadyProps = Readonly<{
   state: "ready";
@@ -85,7 +88,7 @@ function exactBindingIsValid(
   session: AdaptiveQuestionSession,
   answerHistory: readonly QuestionAnswerRecord[],
 ): boolean {
-  if (session.policyVersion !== ADAPTIVE_QUESTION_POLICY_VERSION) return false;
+  if (session.policyVersion !== EXPECTED_QUESTION_POLICY_VERSION) return false;
   const questionRefs = new Set<string>();
   const questionsAreBound = session.questions.every((question, index) => {
     const expectedRef = `${session.sessionRef}/${question.uncertaintyId}/${question.decisionKey}`;

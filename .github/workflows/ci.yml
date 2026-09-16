@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   release-check:
     runs-on: ubuntu-latest
@@ -21,3 +25,161 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run release:check
+
+  postgres-disposable:
+    name: Disposable PostgreSQL 16 schema suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Provision shared disposable Postgres 16
+        run: |
+          IMAGE="postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20"
+          docker run --detach --rm --name pg \
+            --publish 127.0.0.1:5432:5432 \
+            --env POSTGRES_PASSWORD=postgres \
+            --env POSTGRES_DB=postgres "$IMAGE"
+          for i in $(seq 1 60); do
+            docker exec pg psql -X -U postgres -d postgres -Atc "SELECT 1" >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec pg psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres \
+            -c "CREATE DATABASE l01_worker_routes_rehearsal" \
+            -c "CREATE DATABASE t029_tenant_foundation_rehearsal"
+      - name: Disposable Postgres suites
+        env:
+          L05_SCHEMA_RUN_DISPOSABLE_TESTS: "1"
+          F09_CONNECTOR_RUNTIME_RUN_DISPOSABLE_TESTS: "1"
+          F09_SOURCE_POLICY_LIFECYCLE_RUN_DISPOSABLE_TESTS: "1"
+          F01_WORKER_DISPATCH_RUN_DISPOSABLE_TESTS: "1"
+          L01_WORKER_ROUTES_RUN_DISPOSABLE_TESTS: "1"
+          L01_WORKER_ROUTES_ADMIN_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/l01_worker_routes_rehearsal
+          TENANT_WORKER_LEASE_ISSUER_DATABASE_URL: postgres://l01_issuer:l01issuerpass@127.0.0.1:5432/l01_worker_routes_rehearsal
+          TENANT_WORKER_LEASE_RESOLVER_DATABASE_URL: postgres://l01_resolver:l01resolverpass@127.0.0.1:5432/l01_worker_routes_rehearsal
+          T029_RUN_DISPOSABLE_PG_TESTS: "1"
+          T029_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/t029_tenant_foundation_rehearsal
+        run: >-
+          npx vitest run
+          src/lib/__tests__/l05-schema-postgres.test.ts
+          src/lib/__tests__/connector-runtime-schema-postgres.test.ts
+          src/lib/__tests__/connector-source-policy-lifecycle-postgres.test.ts
+          src/lib/__tests__/tenant-worker-dispatch-foundation-postgres.test.ts
+          src/lib/__tests__/l01-local-worker-routes-postgres.test.ts
+          src/lib/__tests__/data-transfer-contract.test.ts
+
+  postgres-selfprovisioning-suites:
+    name: Self-provisioning disposable PostgreSQL 16 suites (L-03/L-04/L-06/L-08)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Disposable PG16 suites (each suite launches its own container)
+        env:
+          L03_PIPELINE_RUN_DISPOSABLE_TESTS: "1"
+          L04_RUN_DISPOSABLE_TESTS: "1"
+          L06_SCHEMA_RUN_DISPOSABLE_TESTS: "1"
+          L08_ACCEPTANCE_RUN_DISPOSABLE_TESTS: "1"
+          PG_RECOVERY_RUN_DISPOSABLE_TESTS: "1"
+        run: >-
+          npx vitest run --maxWorkers=2
+          src/lib/__tests__/document-pipeline-l03-postgres.test.ts
+          src/lib/__tests__/l04-strategy-foundation-postgres.test.ts
+          src/lib/__tests__/l06-schema-postgres.test.ts
+          src/lib/__tests__/l08-acceptance-degraded-postgres.test.ts
+          src/lib/__tests__/postgres-recovery-rehearsal.test.ts
+      - name: Sweep leftover rehearsal containers
+        if: always()
+        run: |
+          for prefix in novatrade-l03- novatrade-l04- novatrade-l06- novatrade-l08- novatrade-pgrcv-; do
+            for id in $(docker ps -aq --filter "name=${prefix}"); do docker rm -f "$id"; done
+          done
+
+  l02-tenant-ops-postgres:
+    name: L-02 tenant cutover/ops runtime-role proof (PostgreSQL 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI_PG_NAME: nova-ci-l02-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Rehearsal-runner selftest (fake docker/npx, no daemon)
+        run: node --test scripts/ci-postgres-rehearsal.selftest.mjs
+      - name: Provision disposable Postgres 16 + per-lane restricted roles
+        run: node scripts/ci-postgres-rehearsal.mjs up provision
+      - name: Run tenant-ops rehearsal lanes
+        run: node scripts/ci-postgres-rehearsal.mjs run
+      - name: Prove pre-tenant auth audit persistence
+        run: node scripts/ci-postgres-rehearsal.mjs auth-audit
+      - name: Tear down disposable Postgres
+        if: always()
+        run: node scripts/ci-postgres-rehearsal.mjs down
+
+  document-real-services:
+    name: Private Storage and ClamAV integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node --test scripts/l03-real-services.selftest.mjs
+      - run: node scripts/l03-real-services.mjs --receipt service-receipt.json
+      - name: Upload sanitized service receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: service-receipt.json
+          retention-days: 7
+
+  staging-rehearsal:
+    name: Isolated staging rehearsal (Supabase + Next production)
+    needs: [release-check, postgres-disposable, postgres-selfprovisioning-suites, l02-tenant-ops-postgres, document-real-services]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Staging harness selftest (fake docker, no daemon)
+        run: node scripts/staging-rehearsal.selftest.mjs
+      - name: Independent staging preservation checks
+        run: node --test scripts/staging-final-safety.test.mjs
+      # Ephemeral run: uniquely-named nova-staging-<run>-* containers on
+      # isolated ports, own compose project/volume/network, verified owned-only
+      # teardown inside the script. No preexisting resources are touched.
+      - name: Isolated staging rehearsal
+        run: node scripts/staging-rehearsal.mjs rehearse
+      # Only the allowlisted receipt is uploaded; private/ (env files, certs,
+      # logs, test output) is deleted by the script on verified cleanup and is
+      # never part of the artifact.
+      - name: Upload sanitized staging receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: staging-artifacts/*/receipt.json
+          retention-days: 7

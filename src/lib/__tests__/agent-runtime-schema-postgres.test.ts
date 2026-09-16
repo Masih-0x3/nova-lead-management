@@ -46,9 +46,8 @@ function docker(args: string[], allowFailure = false): string {
 function waitForPostgres(name: string): void {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     if (docker([
-      "exec", name, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres",
-      "-d", DATABASE, "-Atc", "SELECT 1",
-    ], true) === "1") return;
+      "exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres",
+    ], true).includes("accepting")) return;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
   }
   throw new Error(`PostgreSQL did not become ready: ${docker(["logs", name], true)}`);
@@ -93,7 +92,7 @@ async function replayAllMigrations(sql: Sql): Promise<void> {
     }
   }
   expect({ discovered: migrations.length, applied, skipped: SKIPPED.size })
-    .toEqual({ discovered: 62, applied: 60, skipped: 2 });
+    .toEqual({ discovered: 91, applied: 89, skipped: 2 });
 }
 
 async function seedFoundation(sql: Sql): Promise<void> {
@@ -151,6 +150,7 @@ describe.skipIf(!RUN)("F-06 durable agent-runtime PostgreSQL foundation", () => 
     await admin.unsafe(`GRANT USAGE ON SCHEMA public TO "${runtimeRole}"`);
     await admin.unsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ${TABLES.map((table) => `public.${table}`).join(", ")} TO "${runtimeRole}"`);
     await admin.unsafe(`GRANT USAGE ON SEQUENCE public.agent_run_lease_history_id_seq TO "${runtimeRole}"`);
+    await admin.unsafe(`GRANT EXECUTE ON FUNCTION public.novatrade_rls_member_context(), public.novatrade_validate_tenant_worker_lease() TO "${runtimeRole}"`);
     runtime = postgres(
       `postgres://${runtimeRole}:f06-runtime@127.0.0.1:${port}/${DATABASE}`,
       { max: 1, prepare: false, ssl: false, onnotice: () => undefined },
@@ -172,7 +172,7 @@ describe.skipIf(!RUN)("F-06 durable agent-runtime PostgreSQL foundation", () => 
 
     const catalog = await admin.unsafe<Array<Record<string, unknown>>>(`
       SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
-             (SELECT count(*)::integer FROM pg_catalog.pg_policy p WHERE p.polrelid=c.oid) policy_count,
+             (SELECT count(*)::integer FROM pg_catalog.pg_policy p WHERE p.polrelid=c.oid AND p.polname NOT LIKE 'l04\_%') policy_count,
              pg_catalog.has_table_privilege('anon', c.oid, 'SELECT') anon_select,
              pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT') authenticated_select
       FROM pg_catalog.pg_class c

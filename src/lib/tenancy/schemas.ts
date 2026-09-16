@@ -20,6 +20,9 @@ import {
   TENANT_EXPORT_MANIFEST_VERSION,
   TENANT_EXPORT_MAX_ARTIFACT_AGE_SECONDS,
   TENANT_EXPORT_SCHEMA_VERSION,
+  TENANT_INVITATION_DELIVERY_STATES,
+  TENANT_INVITATION_KINDS,
+  TENANT_INVITATION_STATUSES,
   TENANT_POLICY_ACTIVE_MATERIALS_MODE,
   TENANT_STATUSES,
   type TenantPolicy,
@@ -127,6 +130,7 @@ export const workspaceIdSchema = uuidV4Schema;
 export const membershipIdSchema = uuidV4Schema;
 export const authIdentityIdSchema = uuidV4Schema;
 export const provisioningRequestIdSchema = uuidV4Schema;
+export const tenantInvitationIdSchema = uuidV4Schema;
 export const supportGrantIdSchema = uuidV4Schema;
 export const workerLeaseIdSchema = uuidV4Schema;
 export const actorLayerSchema = z.enum(ACTOR_LAYERS);
@@ -733,6 +737,131 @@ export const tenantProvisioningOperatorCommandSchema = tenantProvisioningRequest
   ownerIdentityId: authIdentityIdSchema,
 });
 export const tenantProvisioningCreateInputSchema = tenantProvisioningOperatorCommandSchema;
+
+const tenantInvitationDeliveryAdapterSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(80)
+  .regex(/^[a-z0-9][a-z0-9._-]{1,79}$/);
+const tenantInvitationReasonSchema = z.string().trim().min(1).max(500);
+const tenantInvitationDeliveryDetailSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(240)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9 .,:;_()/-]*$/);
+
+export const tenantInvitationSchema = z
+  .object({
+    id: tenantInvitationIdSchema,
+    tenantId: tenantIdSchema,
+    membershipId: membershipIdSchema,
+    provisioningRequestId: provisioningRequestIdSchema.nullable(),
+    kind: z.enum(TENANT_INVITATION_KINDS),
+    role: launchRoleSchema,
+    workspaceId: workspaceIdSchema.nullable(),
+    expectedIdentityRefHash: sha256HashSchema,
+    policyVersion: policyVersionSchema,
+    generation: z.number().int().min(1),
+    contentHash: sha256HashSchema,
+    status: z.enum(TENANT_INVITATION_STATUSES),
+    deliveryState: z.enum(TENANT_INVITATION_DELIVERY_STATES),
+    deliveryAdapter: tenantInvitationDeliveryAdapterSchema.nullable(),
+    deliveryRefHash: sha256HashSchema.nullable(),
+    deliveryDetail: tenantInvitationDeliveryDetailSchema.nullable(),
+    issuedAt: supportAccessGrantTimestampSchema,
+    expiresAt: supportAccessGrantTimestampSchema,
+    acceptedAt: supportAccessGrantTimestampSchema.nullable(),
+    acceptedAuthIdentityId: authIdentityIdSchema.nullable(),
+    revokedAt: supportAccessGrantTimestampSchema.nullable(),
+    revokedReasonCode: provisioningTransitionReasonCodeSchema.nullable(),
+    supersededByInvitationId: tenantInvitationIdSchema.nullable(),
+    correlationId: correlationIdSchema,
+    auditEventId: uuidV4Schema,
+    createdAt: supportAccessGrantTimestampSchema,
+    updatedAt: supportAccessGrantTimestampSchema,
+  })
+  .strict()
+  .superRefine((invitation, ctx) => {
+    if (invitation.issuedAt >= invitation.expiresAt) {
+      ctx.addIssue({ code: "custom", path: ["expiresAt"], message: "invitation expiry must follow issuance" });
+    }
+    if (invitation.status === "accepted" && (invitation.acceptedAt === null || invitation.acceptedAuthIdentityId === null)) {
+      ctx.addIssue({ code: "custom", path: ["acceptedAt"], message: "accepted invitations carry acceptance facts" });
+    }
+    if ((invitation.status === "revoked" || invitation.status === "superseded") && invitation.revokedAt === null) {
+      ctx.addIssue({ code: "custom", path: ["revokedAt"], message: "revoked/superseded invitations carry a revocation timestamp" });
+    }
+    if (invitation.status === "superseded" && invitation.supersededByInvitationId === null) {
+      ctx.addIssue({ code: "custom", path: ["supersededByInvitationId"], message: "superseded invitations name their replacement" });
+    }
+    if (invitation.deliveryState !== "queued" && invitation.deliveryAdapter === null) {
+      ctx.addIssue({ code: "custom", path: ["deliveryAdapter"], message: "a delivery attempt records its adapter" });
+    }
+  });
+
+/** The accepting identity is resolved server-side and is never part of this command. */
+export const tenantInvitationAcceptanceCommandSchema = z
+  .object({
+    invitationId: tenantInvitationIdSchema,
+    idempotencyKey: idempotencyKeySchema,
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
+export const tenantInvitationReissueCommandSchema = z
+  .object({
+    invitationId: tenantInvitationIdSchema,
+    reasonCode: provisioningTransitionReasonCodeSchema,
+    reason: tenantInvitationReasonSchema,
+    expiresAt: supportAccessGrantTimestampSchema.optional(),
+    idempotencyKey: idempotencyKeySchema,
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
+export const tenantInvitationRevokeCommandSchema = z
+  .object({
+    invitationId: tenantInvitationIdSchema,
+    reasonCode: provisioningTransitionReasonCodeSchema,
+    reason: tenantInvitationReasonSchema,
+    idempotencyKey: idempotencyKeySchema,
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
+export const tenantInvitationStatusQuerySchema = z
+  .object({
+    invitationId: tenantInvitationIdSchema,
+    correlationId: correlationIdSchema.optional(),
+  })
+  .strict();
+
+/**
+ * Internal member-invite issuance command. The expected identity reference is
+ * the pending membership's selector hash; raw recipient material never enters.
+ */
+export const tenantInvitationIssueCommandSchema = z
+  .object({
+    tenantId: tenantIdSchema,
+    membershipId: membershipIdSchema,
+    role: launchRoleSchema,
+    workspaceId: workspaceIdSchema.nullable(),
+    expectedIdentityRefHash: sha256HashSchema,
+    actorMembershipId: membershipIdSchema,
+    actorIdentityId: authIdentityIdSchema,
+    idempotencyKey: idempotencyKeySchema,
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
+export type TenantInvitationRecord = z.infer<typeof tenantInvitationSchema>;
+export type TenantInvitationAcceptanceCommand = z.infer<typeof tenantInvitationAcceptanceCommandSchema>;
+export type TenantInvitationReissueCommand = z.infer<typeof tenantInvitationReissueCommandSchema>;
+export type TenantInvitationRevokeCommand = z.infer<typeof tenantInvitationRevokeCommandSchema>;
+export type TenantInvitationStatusQuery = z.infer<typeof tenantInvitationStatusQuerySchema>;
+export type TenantInvitationIssueCommand = z.infer<typeof tenantInvitationIssueCommandSchema>;
 
 export const provisioningTransitionMap: Record<
   ProvisioningWorkflowState,

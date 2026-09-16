@@ -365,15 +365,22 @@ type EstimateCrawlPayload = z.infer<typeof startPlannerSchema> | z.infer<typeof 
 
 async function requireCrawlPermission(
   selector: TenantSessionSelector,
-  permission: "source:review" | "source:execute" | "queue:operate",
   action: string,
 ): Promise<TenantSession> {
-  const tenantSession = await requireTenantPermission(selector, permission, { action });
+  const tenantSession = await requireTenantPermission(selector, "tenant:read", { action });
   const legacySession = await requirePermission("crawl:manage");
   if (legacySession.userId !== tenantSession.userId) {
     throw new TenantAuthorizationError(403, "TENANT_SCOPE_MISMATCH");
   }
   return tenantSession;
+}
+
+function crawlPermissionPolicyAllows(
+  permission: "source:review" | "source:execute" | "queue:operate",
+  policy: { sourceResearchEnabled: boolean; requireSourcePlanApproval: boolean },
+): boolean {
+  if (!policy.sourceResearchEnabled) return false;
+  return permission !== "source:execute" || !policy.requireSourcePlanApproval;
 }
 
 async function withCrawlPermission<T>(
@@ -382,9 +389,24 @@ async function withCrawlPermission<T>(
   action: string,
   callback: (session: TenantSession, db: DbClient) => Promise<T>,
 ): Promise<T> {
-  const tenantSession = await requireCrawlPermission(selector, permission, action);
+  const tenantSession = await requireCrawlPermission(selector, action);
   return runWithTenantContext(tenantSession, `${action}:${randomUUID()}`, () =>
-    withTenantDbContext((db) => callback(tenantSession, db)));
+    withTenantDbContext(async (db) => {
+      const currentPolicy = await createTenantQueryRepository(db).getCurrentTenantPolicy(tenantSession.tenantId);
+      const parsedPolicy = tenantPolicySchema.safeParse(currentPolicy);
+      await assertTenantPermission(tenantSession, permission, {
+        action,
+        policyEvaluator: (context: TenantPolicyContext) => ({
+          allowed: context.tenantId === tenantSession.tenantId
+            && context.workspaceId === tenantSession.workspaceId
+            && parsedPolicy.success
+            && parsedPolicy.data.tenantId === tenantSession.tenantId
+            && crawlPermissionPolicyAllows(permission, parsedPolicy.data),
+          context,
+        }),
+      });
+      return callback(tenantSession, db);
+    }));
 }
 
 async function withCrawlWorkspacePermission<T>(
@@ -1621,10 +1643,14 @@ export async function getFailedUnitErrorsAction(
   });
 }
 
-export async function getCrawlProgressAction() {
-  await requirePermission("crawl:manage");
-  await ensureDbReady();
-  const run = await getSelectedOrDefaultVisibleCrawlRun();
-  if (!run) return null;
-  return { runId: run.id, status: run.status, ...(await getCrawlProgress(run.id)) };
+export async function getCrawlProgressAction(selector: TenantSessionSelector = {}) {
+  return withCrawlPermission(selector, "source:review", "crawl.progress.read", async (session) => {
+    await ensureDbReady();
+    const run = await getSelectedOrDefaultVisibleCrawlRun(undefined, {
+      tenantId: session.tenantId,
+      workspaceId: session.workspaceId,
+    });
+    if (!run) return null;
+    return { runId: run.id, status: run.status, ...(await getCrawlProgress(run.id)) };
+  });
 }

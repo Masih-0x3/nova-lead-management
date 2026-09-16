@@ -17,6 +17,7 @@ describe("authenticated NavHeader shell", () => {
       <NavHeader
         email="owner@aster.example"
         role="admin"
+        tenantRole="owner"
         scope={{ tenantLabel: "Tenant ID · aster", workspaceLabel: "Workspace ID · north-america", roleLabel: "owner", preview: false }}
         logoutAction={async () => undefined}
       />,

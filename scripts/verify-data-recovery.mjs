@@ -15,49 +15,21 @@ import {
   tableContractsForSchemaVersion,
   validateDataExportDirectory,
 } from "./data-transfer-contract.mjs";
+import {
+  PG_RECOVERY_TABLE_NAMES,
+  PG_RECOVERY_TABLE_BY_NAME,
+  validatePostgresRecoveryArchive,
+} from "./postgres-recovery-contract.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
 // The SQLite tenant membership mutation journal is deliberately outside the
-// recovery export contract: it is local admin state (never tenant data), it is
-// excluded from the manifest-locked SQLITE_SCHEMA_V1 by its own schema tests,
-// and it must never appear in the shared PostgreSQL migrations.
+// portable recovery export contract: it is local admin state (never tenant
+// data) and it is excluded from the manifest-locked SQLITE_SCHEMA_V1 by its
+// own schema tests. L-02 additionally ports it as a Postgres twin
+// (202609120010); the pg-recovery contract marks it `sqliteAuxiliary`, and the
+// Postgres guard below allows that explicit dual-homing.
 const SQLITE_LOCAL_AUXILIARY_TABLES = Object.freeze(["tenant_membership_mutation_journal"]);
-
-// Postgres-only foundation tables (agent runtime, connector runtime, source
-// policy lifecycle, document intake/extraction, worker dispatch) that the
-// F-04–F-09 migrations create ahead of their recovery contracts. They hold no
-// recovery-manifest contract yet; adding one must remove it from this list.
-const POSTGRES_FOUNDATION_TABLES = Object.freeze([
-  "agent_prompt_versions",
-  "agent_policy_versions",
-  "agent_runs",
-  "agent_run_lease_history",
-  "agent_run_steps",
-  "agent_tool_calls",
-  "agent_usage_reservations",
-  "agent_usage_settlements",
-  "connector_versions",
-  "connector_accounts",
-  "source_policy_versions",
-  "source_runs",
-  "source_run_units",
-  "source_run_lease_history",
-  "source_observations",
-  "source_usage_reservations",
-  "source_usage_settlements",
-  "current_source_policy_activations",
-  "documents",
-  "document_versions",
-  "document_upload_reservations",
-  "document_version_finalizations",
-  "document_scan_jobs",
-  "document_scan_outbox",
-  "document_scan_lease_history",
-  "document_extraction_jobs",
-  "document_extraction_lease_history",
-  "tenant_worker_dispatch_leases",
-]);
 
 function verifyTrackedTableCoverage() {
   const sqliteSchema = fs.readFileSync(path.join(repoRoot, "src/lib/db/schema.ts"), "utf8");
@@ -74,11 +46,33 @@ function verifyTrackedTableCoverage() {
     .map((file) => fs.readFileSync(path.join(migrationsDir, file), "utf8"))
     .join("\n");
   const migrationTables = extractCreatedTables(migrationSql);
-  assertExactTableSet(migrationTables, "supabase/migrations", {
-    allowedExtra: new Set(POSTGRES_FOUNDATION_TABLES),
+  // The migrated public-table set must equal the pg-recovery contract exactly:
+  // every table the migrations create is classified (durable today; an
+  // explicit exclusion requires a reason in the contract), and every
+  // classified table exists. An unclassified new migration table fails closed.
+  const unclassified = [...migrationTables].filter((table) => !PG_RECOVERY_TABLE_BY_NAME.has(table)).sort();
+  const contractOnly = PG_RECOVERY_TABLE_NAMES.filter((table) => !migrationTables.has(table)).sort();
+  if (unclassified.length > 0 || contractOnly.length > 0) {
+    throw new Error(
+      `supabase/migrations: pg-recovery coverage mismatch; unclassified [${unclassified.join(", ")}], missing [${contractOnly.join(", ")}]. `
+      + "Update scripts/postgres-recovery-contract.mjs with an explicit classification for each new public table.",
+    );
+  }
+  // The frozen v3/v4 portable contract remains a strict subset of the
+  // pg-recovery classification and keeps its `portable` marker.
+  const portableMissing = TABLE_NAMES.filter((table) => {
+    const entry = PG_RECOVERY_TABLE_BY_NAME.get(table);
+    return !entry || entry.portable !== true;
   });
+  if (portableMissing.length > 0) {
+    throw new Error(`postgres-recovery-contract: portable v3/v4 tables lost their portable classification: [${portableMissing.join(", ")}]`);
+  }
+  // SQLite-local auxiliaries must never appear on PostgreSQL, except for
+  // tables explicitly dual-homed via `sqliteAuxiliary` in the pg-recovery
+  // contract (L-02 ports the membership-mutation journal as a Postgres twin;
+  // see its migration header).
   for (const table of SQLITE_LOCAL_AUXILIARY_TABLES) {
-    if (migrationTables.has(table)) {
+    if (migrationTables.has(table) && PG_RECOVERY_TABLE_BY_NAME.get(table)?.sqliteAuxiliary !== true) {
       throw new Error(`supabase/migrations: SQLite-local auxiliary table ${table} must never be created on PostgreSQL`);
     }
   }
@@ -149,7 +143,7 @@ function main() {
   const contracts = tableContractsForSchemaVersion(schemaVersion);
 
   verifyTrackedTableCoverage();
-  console.log(`Recovery contract: ${TABLE_NAMES.length} application tables match SQLite schema and tracked migrations.`);
+  console.log(`Recovery contract: ${TABLE_NAMES.length} portable v3/v4 tables match SQLite schema; all ${PG_RECOVERY_TABLE_NAMES.length} migrated public tables are classified by the pg-recovery contract.`);
 
   const dbArg = args.get("db");
   if (typeof dbArg === "string") {
@@ -169,6 +163,15 @@ function main() {
     console.log(`Export archive: ${validated.dir} passed manifest, checksum, row, key, and secret-exclusion checks (${totalRows} rows).`);
   } else if (dirArg === true) {
     throw new Error("--dir requires an export directory path");
+  }
+
+  const pgArchiveArg = args.get("pg-archive");
+  if (typeof pgArchiveArg === "string") {
+    const validated = validatePostgresRecoveryArchive(pgArchiveArg);
+    const totalRows = Object.values(validated.manifest.tables).reduce((sum, table) => sum + table.rows, 0);
+    console.log(`Postgres recovery archive: ${validated.dir} passed integrity, coverage, and contract checks (${PG_RECOVERY_TABLE_NAMES.length} tables, ${totalRows} rows).`);
+  } else if (pgArchiveArg === true) {
+    throw new Error("--pg-archive requires a recovery archive directory path");
   }
 }
 

@@ -12,12 +12,8 @@ import {
   createLocalTenantMembershipAdministrationService,
   isLocalMembershipAdministrationAvailable,
 } from "@/lib/tenancy/local-membership-administration";
+import { createPostgresTenantMembershipAdministrationService } from "@/lib/tenancy/postgres-membership-administration";
 import type { MembershipHistoryView, MembershipView } from "@/lib/tenancy/memberships";
-import {
-  createTenantQueryRepository,
-  type MembershipDirectoryEntry,
-  type RoleBinding,
-} from "@/lib/tenancy/queries";
 import type { MembershipStatus } from "@/lib/tenancy/types";
 
 export const metadata: Metadata = { title: "Users | Nova Trade Lead Management" };
@@ -62,20 +58,18 @@ export default async function UsersPage() {
     return <UsersUnavailable reason="tenant_scope_unavailable" />;
   }
 
-  const localMutationsAvailable = isLocalMembershipAdministrationAvailable();
   let directory: Directory;
   try {
     directory = await runWithTenantContext(
       tenantSession,
       `users-page:${randomUUID()}`,
       () => withTenantDbContext((db) => withDbStatementTimeout(10_000, async () => {
-        if (localMutationsAvailable) {
-          const service = createLocalTenantMembershipAdministrationService(db);
-          const memberships = await service.listCurrent(tenantSession);
-          const history = await service.listHistory(tenantSession);
-          return validateDirectory(tenantSession, memberships, history);
-        }
-        return loadReadOnlyDirectory(tenantSession, createTenantQueryRepository(db));
+        const service = isLocalMembershipAdministrationAvailable()
+          ? createLocalTenantMembershipAdministrationService(db)
+          : createPostgresTenantMembershipAdministrationService();
+        const memberships = await service.listCurrent(tenantSession);
+        const history = await service.listHistory(tenantSession);
+        return validateDirectory(tenantSession, memberships, history);
       })),
     );
     logRouteTiming(200);
@@ -88,7 +82,7 @@ export default async function UsersPage() {
   const pending = directory.memberships.filter((membership) => membership.status === "pending").length;
   const suspended = directory.memberships.filter((membership) => membership.status === "suspended").length;
   const withoutRole = directory.memberships.filter((membership) => membership.role === null).length;
-  const mutationsEnabled = localMutationsAvailable && (tenantSession.role === "owner" || tenantSession.role === "admin");
+  const mutationsEnabled = tenantSession.role === "owner" || tenantSession.role === "admin";
 
   return (
     <PageShell
@@ -110,84 +104,6 @@ export default async function UsersPage() {
       />
     </PageShell>
   );
-}
-
-async function loadReadOnlyDirectory(
-  session: TenantSession,
-  repository: ReturnType<typeof createTenantQueryRepository>,
-): Promise<Directory> {
-  const snapshotAt = Date.now();
-  const [memberships, roleBindings] = await Promise.all([
-    repository.listMembershipDirectory(session.tenantId, session.membershipId, session.userId),
-    repository.listRoleBindings(session.tenantId),
-  ]);
-  return projectReadOnlyDirectory(session, memberships, roleBindings, snapshotAt);
-}
-
-function projectReadOnlyDirectory(
-  session: TenantSession,
-  memberships: readonly MembershipDirectoryEntry[],
-  roleBindings: readonly RoleBinding[],
-  snapshotAt: number,
-): Directory {
-  const membershipIds = new Set(memberships.map((membership) => membership.id));
-  const actorIdentityMatches = memberships.filter((membership) => membership.actorIdentityMatches);
-  if (membershipIds.size !== memberships.length
-    || actorIdentityMatches.length !== 1
-    || actorIdentityMatches[0].id !== session.membershipId
-    || new Set(roleBindings.map((binding) => binding.id)).size !== roleBindings.length
-    || memberships.some((membership) => membership.tenantId !== session.tenantId)
-    || roleBindings.some((binding) => binding.tenantId !== session.tenantId
-      || !membershipIds.has(binding.membershipId)
-      || !validRoleBindingTime(binding, snapshotAt)
-      || (binding.assignedByMembershipId !== null && !membershipIds.has(binding.assignedByMembershipId)))) {
-    throw new Error("Invalid tenant member snapshot.");
-  }
-
-  const current: MembershipView[] = [];
-  const history: MembershipHistoryView[] = [];
-  for (const membership of memberships) {
-    const bindings = roleBindings.filter((binding) => binding.membershipId === membership.id);
-    const currentBindings = bindings.filter((binding) => binding.revokedAt === null);
-    if (currentBindings.length > 1) throw new Error("Invalid tenant member snapshot.");
-    if (TERMINAL_MEMBERSHIP_STATUSES.has(membership.status) && currentBindings.length !== 0) {
-      throw new Error("Invalid tenant member snapshot.");
-    }
-    const roleBinding = currentBindings[0] ?? null;
-    const view: MembershipView = {
-      tenantId: membership.tenantId,
-      membershipId: membership.id,
-      status: membership.status,
-      role: roleBinding?.role ?? null,
-      workspaceId: membership.workspaceId,
-    };
-    if (CURRENT_MEMBERSHIP_STATUSES.has(membership.status)) current.push(view);
-    history.push({
-      ...view,
-      roleBindings: bindings.map((binding) => ({
-        id: binding.id,
-        role: binding.role,
-        revokedAt: binding.revokedAt,
-        reasonCode: binding.reasonCode,
-      })),
-    });
-  }
-
-  const actorBinding = roleBindings.filter((binding) => binding.id === session.roleBindingId
-    && binding.membershipId === session.membershipId && binding.revokedAt === null);
-  if (actorBinding.length !== 1 || actorBinding[0].role !== session.role) {
-    throw new Error("Invalid tenant member snapshot.");
-  }
-  return validateDirectory(session, current, history);
-}
-
-function validRoleBindingTime(binding: RoleBinding, snapshotAt: number): boolean {
-  const createdAt = Date.parse(binding.createdAt);
-  const validFrom = Date.parse(binding.validFrom);
-  const revokedAt = binding.revokedAt === null ? null : Date.parse(binding.revokedAt);
-  return Number.isFinite(createdAt) && createdAt <= snapshotAt
-    && Number.isFinite(validFrom) && createdAt <= validFrom && validFrom <= snapshotAt
-    && (revokedAt === null || (Number.isFinite(revokedAt) && revokedAt >= validFrom && revokedAt <= snapshotAt));
 }
 
 function validateDirectory(

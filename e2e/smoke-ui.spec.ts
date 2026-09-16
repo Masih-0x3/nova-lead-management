@@ -33,7 +33,7 @@ test.describe("UI Smoke Test", () => {
 
   test("2b. Theme toggle and desktop Admin menu work in both themes", async ({ page }) => {
     requireE2EAuth();
-    await page.evaluate(() => localStorage.setItem("nosite-theme", "dark"));
+    await page.evaluate(() => localStorage.setItem("nova-trade-theme", "dark"));
     await page.reload({ waitUntil: "networkidle" });
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -51,7 +51,7 @@ test.describe("UI Smoke Test", () => {
   test("2c. Mobile hamburger opens primary and Admin links", async ({ page }) => {
     requireE2EAuth();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.evaluate(() => localStorage.setItem("nosite-theme", "dark"));
+    await page.evaluate(() => localStorage.setItem("nova-trade-theme", "dark"));
     await page.goto(`${BASE_URL}/queue`, { waitUntil: "networkidle" });
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -65,7 +65,7 @@ test.describe("UI Smoke Test", () => {
 
   test("2d. Explore renders in dark mode", async ({ page }) => {
     requireE2EAuth();
-    await page.evaluate(() => localStorage.setItem("nosite-theme", "dark"));
+    await page.evaluate(() => localStorage.setItem("nova-trade-theme", "dark"));
     await page.goto(`${BASE_URL}/explore`, { waitUntil: "networkidle" });
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -85,7 +85,7 @@ test.describe("UI Smoke Test", () => {
     await expect(page.getByText("Estimated cost", { exact: true })).toBeVisible();
     await expect(page.getByText("Cap remaining", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Dentists" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Auto repair" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Auto repair", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Contractors" })).toBeVisible();
   });
 
@@ -100,23 +100,23 @@ test.describe("UI Smoke Test", () => {
 
     const cacheTtl = page.getByText("Cache TTL (days)").locator("..").locator("input");
     const stageBMinScore = page.getByText("Stage-B Min Score").locator("..").locator("input");
-    const maxAtmosphere = page.getByText("Max Atmosphere / Run").locator("..").locator("input");
+    const aiBatchLimit = page.getByText("AI Batch Limit").locator("..").locator("input");
     const lockedAiModel = page.getByText("Locked Model").locator("..").locator("input");
-    const aiBudget = page.getByText("Daily AI Budget ($)").locator("..").locator("input");
-    const costEngineCheckbox = page.getByRole("checkbox", { name: /Enable pricing-accurate cost engine v2/i });
+    const aiBudget = page.getByText("Researcher AI Daily $").locator("..").locator("input");
+    const aiEnabledCheckbox = page.getByRole("checkbox", { name: /Enable AI lead verification/i });
     const backfillBtn = page.getByRole("button", { name: "Backfill Canonical Places" });
 
     await expect(cacheTtl).toBeVisible();
     await expect(stageBMinScore).toBeVisible();
-    await expect(maxAtmosphere).toBeVisible();
+    await expect(aiBatchLimit).toBeVisible();
     await expect(lockedAiModel).toHaveValue("gpt-5.4-mini");
     await expect(aiBudget).toBeVisible();
-    await expect(costEngineCheckbox).toBeVisible();
+    await expect(aiEnabledCheckbox).toBeVisible();
     await expect(backfillBtn).toBeVisible();
 
     const origCache = await cacheTtl.inputValue();
     const origStageB = await stageBMinScore.inputValue();
-    const origAtmosphere = await maxAtmosphere.inputValue();
+    const origBatchLimit = await aiBatchLimit.inputValue();
 
     await cacheTtl.fill("99");
     await expect(cacheTtl).toHaveValue("99");
@@ -126,15 +126,15 @@ test.describe("UI Smoke Test", () => {
     await expect(stageBMinScore).toHaveValue("4.5");
     await stageBMinScore.fill(origStageB);
 
-    await maxAtmosphere.fill("50");
-    await expect(maxAtmosphere).toHaveValue("50");
-    await maxAtmosphere.fill(origAtmosphere);
+    await aiBatchLimit.fill("50");
+    await expect(aiBatchLimit).toHaveValue("50");
+    await aiBatchLimit.fill(origBatchLimit);
 
-    const checked = await costEngineCheckbox.isChecked();
-    await costEngineCheckbox.click();
-    await expect(costEngineCheckbox).toBeChecked({ checked: !checked });
-    await costEngineCheckbox.click();
-    await expect(costEngineCheckbox).toBeChecked({ checked });
+    const checked = await aiEnabledCheckbox.isChecked();
+    await aiEnabledCheckbox.click();
+    await expect(aiEnabledCheckbox).toBeChecked({ checked: !checked });
+    await aiEnabledCheckbox.click();
+    await expect(aiEnabledCheckbox).toBeChecked({ checked });
 
     await expect(backfillBtn).toBeEnabled();
     expect(errors).toHaveLength(0);
@@ -174,7 +174,7 @@ test.describe("UI Smoke Test", () => {
     await page.getByLabel("Business type").selectOption("dental");
     await page.waitForURL(/businessType=dental/, { timeout: 5000 });
     await expect(page.getByLabel("Business type")).toHaveValue("dental");
-    await expect(page.getByRole("link", { name: "Export CSV" })).toHaveAttribute("href", /businessType=dental/);
+    await expect(page.getByRole("button", { name: "Export CSV" })).toBeEnabled();
 
     await page.goto(`${BASE_URL}/statistics`, { waitUntil: "networkidle" });
     await page.waitForURL(/\/statistics/, { timeout: 5000 });

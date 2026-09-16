@@ -69,8 +69,21 @@ describe.skipIf(!enabled)("minimum-review PostgreSQL bind regression", () => {
       const dbModule = await import("@/lib/db/index");
       resetDbClient = dbModule.resetDbClient;
       const { getLeads } = await import("@/lib/db/queries");
+      const { runWithTenantContext } = await import("@/lib/tenancy/context");
+      // getLeads is tenant-scoped now: a tenant-wide member context supplies
+      // the required tenant_id filter, matching the fixture tenant below.
+      const tenantWideSession = {
+        userId: randomUUID(),
+        email: "g007sr4-member@nova.test",
+        displayName: "SR4 Member",
+        tenantId,
+        workspaceId: null,
+        membershipId: randomUUID(),
+        role: "researcher" as const,
+        roleBindingId: randomUUID(),
+      };
       const read = async (minReviews: unknown) => {
-        const result = await getLeads({
+        const result = await runWithTenantContext(tenantWideSession, `g007sr4-read-${suffix}`, () => getLeads({
           search: marker,
           archived: "all",
           includeExcluded: true,
@@ -78,7 +91,7 @@ describe.skipIf(!enabled)("minimum-review PostgreSQL bind regression", () => {
           sortBy: "review_count",
           sortDir: "asc",
           pageSize: 20,
-        });
+        }));
         return result.leads.map((lead) => lead.id).sort();
       };
       const allIds = Object.values(ids).sort();

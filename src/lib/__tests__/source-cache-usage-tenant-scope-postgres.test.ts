@@ -46,7 +46,7 @@ function docker(args: string[], allowFailure = false): string {
 
 function waitForPostgres(container: string, database: string): void {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    if (docker(["exec", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database, "-Atc", "SELECT 1"], true) === "1") return;
+    if (docker(["exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], true).includes("accepting")) return;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
   }
   throw new Error(`PostgreSQL did not become ready: ${docker(["logs", container], true)}`);
@@ -249,7 +249,7 @@ describe("G-005 source cache and usage tenant scope", () => {
         expect(version.version.startsWith("16")).toBe(true);
 
         const full = await resetTo(client);
-        expect(full).toEqual({ discovered: 62, applied: 60, skipped: 2 });
+        expect(full).toEqual({ discovered: 91, applied: 89, skipped: 2 });
         await client.unsafe(g007p1Sql);
         await client.unsafe(migrationSql);
         const [catalog] = await client.unsafe<Array<{ source_columns: number; tenant_columns: number; primary_keys: number; source_checks: number; tenant_indexes: number; global_indexes: number; triggers: number; rls_tables: number; policies: number }>>(`

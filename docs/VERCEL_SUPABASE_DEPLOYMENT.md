@@ -1,6 +1,31 @@
 # Vercel + Supabase Deployment Runbook
 
-This is the production path for NoSite Leads. It keeps the app invite-only with admin-created users and uses Supabase as the server-side Postgres database.
+This is the production operator reference for Nova Trade. It keeps the app invite-only and uses Supabase Auth/PostgreSQL. It does not authorize deployment or activate a design-partner cohort.
+
+## Current release boundary (September 2026)
+
+Use [STAGING.md](STAGING.md) for the isolated, synthetic local/CI rehearsal and [CODEX_HANDOFF.md](CODEX_HANDOFF.md) for current evidence. The GitHub `staging` environment is not an always-on hosted service. The older domain and legacy CRM examples below are illustrative, not proof that a current production deployment exists.
+
+Before any production launch, the named owner must approve the target and verify:
+
+- all 91 migrations on the actual Supabase target, tenant provisioning/cutover and invite-only Auth configuration;
+- separate restricted worker lease issuer/resolver credentials, private object storage, approved ClamAV engine/policy, and explicit fail-closed service configuration from `.env.example`;
+- the app database privilege model: the local rehearsal uses a privileged connection for legacy bootstrap and does **not** prove a least-privilege production app connection;
+- native PostgreSQL recovery plus separate Auth, Storage bytes, Vault/configuration, and encryption-key recovery; see [DATA_RECOVERY_POSTGRES.md](DATA_RECOVERY_POSTGRES.md);
+- rotated credentials, retention/backups, support ownership, canonical HTTPS/Auth redirects, provider source approvals and external budget caps;
+- authorized authenticated acceptance and a recorded production go/no-go. No automatic outreach sending is supported.
+
+Never use the disposable local seeder or its dummy credentials on production. Never point a mutating PR preview at production data. Local/staging evidence does not establish production availability, calibrated provider quality, or customer enrollment approval.
+
+### Production qualification still required
+
+The real-service rehearsal uses a private `supabase/storage-api` deployment with `UPLOAD_SIGNED_URL_EXPIRATION_TIME=300`. Qualify the actual Storage target against the same maximum five-minute signed-upload contract. Do not assume a managed provider's default expiry is configurable or acceptable: the client intentionally rejects overlong capabilities. The quarantine bucket must remain private, and object bytes need a separate retention/backup policy.
+
+ClamAV's TCP protocol provides neither authentication nor encryption. Keep the daemon on a trusted private network, pin the approved engine/policy, and establish signature update, availability, and monitoring ownership. Do not expose port 3310 publicly or disable TLS validation for the Storage client.
+
+Runtime-local SQLite files, dotenv files, Supabase development certificates, and rehearsal artifacts are excluded from Next.js deployment traces. `release:check` inspects the actual build manifests and fails if local databases, private keys, or rehearsal state are included. If the Storage client needs a custom CA bundle, provision that trust bundle separately at runtime; do not bundle the local stack's certificates or private key.
+
+Before a larger cohort, profile membership hydration, outreach draft listing, reporting outcome hydration, and understanding lineage reads with production-sized synthetic data. Batch or paginate only where measurements justify it, preserving tenant authorization and provenance validation. These are bounded operational follow-ups, not permission to restart the historical feature backlog.
 
 ## 1. Codebase Checks
 
@@ -19,27 +44,29 @@ Authenticated E2E does not start a target. Keep a target running, set
 `release:check`, start the built app in one terminal:
 
 ```bash
-npm run start -- --hostname 127.0.0.1 --port 3000
+npm run start -- --hostname localhost --port 3000
 ```
 
 Then run the read-only projects from another terminal:
 
 ```bash
-E2E_BASE_URL=http://127.0.0.1:3000 \
+E2E_BASE_URL=http://localhost:3000 \
 E2E_STORAGE_STATE=.auth/admin.json \
-npm run test:e2e
+npm run test:e2e:auth -- --grep-invert 'Researcher Smoke Test'
 ```
 
 An already-running remote target is also supported for the read-only projects:
 
 ```bash
-E2E_BASE_URL=https://www.nosite.xyz \
+E2E_BASE_URL=https://approved-preview.example.com \
 E2E_STORAGE_STATE=.auth/admin.json \
-npm run test:e2e
+npm run test:e2e:auth -- --grep-invert 'Researcher Smoke Test'
 ```
 
 If no storage state is available, replace it in either example with both E2E
-Supabase credentials. Missing auth is a hard failure. See `docs/TESTING.md`.
+Supabase credentials. Run the researcher smoke separately with researcher credentials
+and `--grep 'Researcher Smoke Test'`; do not run both roles as admin. Use canonical
+localhost consistently for local Secure-cookie acceptance. Missing auth is a hard failure. See `docs/TESTING.md`.
 Mutating E2E is never part of this default release path.
 
 For the launch screenshot QA pass, run the dedicated authenticated screenshot
@@ -108,9 +135,11 @@ After applying migrations, verify at minimum:
 
 ## 3. Migrate Local Data
 
-The complete backup, restore, rollback, protected-column, and migration-drift
-procedure is in [`DATA_RECOVERY.md`](DATA_RECOVERY.md). Export/import does not
-apply migrations or back up Supabase Auth/Vault.
+The portable backup, restore, rollback, protected-column, and migration-drift
+procedure is in [`DATA_RECOVERY.md`](DATA_RECOVERY.md). This is the legacy transfer
+path, not a full backup of the multitenant product. Native application-schema
+recovery is separate: [`DATA_RECOVERY_POSTGRES.md`](DATA_RECOVERY_POSTGRES.md).
+Export/import does not apply migrations or back up Supabase Auth/Vault/Storage bytes.
 
 Export local SQLite data:
 
@@ -118,7 +147,7 @@ Export local SQLite data:
 npm run db:export:sqlite -- --db nosite-leads.db --out data-export
 ```
 
-This writes a versioned, checksummed 23-table archive to ignored
+This writes a versioned, checksummed 37-table v4 archive to ignored
 `data-export/`. OpenAI, Google Places, and Google Maps browser encrypted key
 columns are always excluded; `MIGRATE_ENCRYPTED_KEYS=1` is rejected.
 
@@ -183,9 +212,19 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 NOSITE_BOOTSTRAP_ADMIN_EMAIL=
 NOSITE_ENCRYPTION_SECRET=
-NOSITE_SESSION_SECRET=
 WORKER_CRON_SECRET=
 WORKER_ROUTE_TIMEOUT_MS=45000
+TENANT_WORKER_LEASE_ISSUER_DATABASE_URL=
+TENANT_WORKER_LEASE_RESOLVER_DATABASE_URL=
+NOVA_DOCUMENT_STORAGE_BACKEND=supabase
+NOVA_DOCUMENT_SCANNER_BACKEND=clamd
+NOVA_SUPABASE_STORAGE_ORIGIN=
+NOVA_SUPABASE_STORAGE_BUCKET=
+NOVA_SCANNER_POLICY_VERSION=
+NOVA_SCANNER_APPROVED_ID=clamd-instream
+NOVA_SCANNER_APPROVED_VERSION=
+NOVA_CLAMD_HOST=
+NOVA_CLAMD_PORT=3310
 GOOGLE_PLACES_API_KEY=
 NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY=
 OPENAI_API_KEY=
@@ -193,7 +232,10 @@ OPENAI_MODEL=gpt-5.4-mini
 OPENAI_AI_COST_RESERVATION_USD=0.05
 ```
 
-Redeploy after any environment variable change.
+Redeploy after any environment variable change. `NOSITE_ENCRYPTION_SECRET` is the
+canonical encryption key; `NOSITE_SESSION_SECRET` is only a legacy fallback, not
+a second authentication mechanism. Preserve the encryption key separately from
+database archives and rotate it only through a verified re-encryption procedure.
 
 `NEXT_PUBLIC_APP_URL` should be set in Production because welcome invite and reset
 links are generated server-side. Set it to the canonical production origin:
@@ -255,7 +297,7 @@ this browser map.
 
 The app has internal Google Places caps, but Google Cloud quotas and billing
 alerts are still required as the external safety net. Configure both before
-starting Canada, U.K., or broad Colorado discovery.
+starting any approved U.S. launch discovery. Non-U.S. expansion remains deferred.
 
 Default app caps for the max-free posture:
 
@@ -289,8 +331,9 @@ At minimum, production and any usable preview environment need:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NOSITE_BOOTSTRAP_ADMIN_EMAIL`
 - `NOSITE_ENCRYPTION_SECRET`
-- `NOSITE_SESSION_SECRET`
 - `WORKER_CRON_SECRET` or Supabase Vault `worker_cron_secret`
+- `TENANT_WORKER_LEASE_ISSUER_DATABASE_URL` and `TENANT_WORKER_LEASE_RESOLVER_DATABASE_URL`
+- the explicit private Storage/ClamAV configuration above
 
 ### Admin password recovery
 
@@ -300,7 +343,7 @@ recovery links are one-time-use; after the first click, later clicks can show
 
 If the admin is locked out and app-generated reset links still fail after the
 env and Supabase Auth URL settings above are confirmed, use Supabase Dashboard
-as the emergency path: set a temporary password for `masihation@gmail.com`,
+as the emergency path: set a temporary password for the verified bootstrap admin,
 sign in, and immediately change the password. Do not use dashboard-generated
 reset emails as the normal recovery path.
 

@@ -38,7 +38,7 @@ export interface SanitizedOperationalLogEvent {
   readonly entityId: string | null;
   readonly actorUserId: string | null;
   readonly actorEmail: { domain: string | null; hash: string } | null;
-  readonly actorForAudit: { userId: string; email: null; role: AppRole | null } | null;
+  readonly actorForAudit: { userId: string | null; email: null; role: AppRole | null } | null;
   readonly actorWasProvided: boolean;
   readonly metadata: Record<string, unknown>;
   readonly runtime: RuntimeLogContext;
@@ -478,7 +478,7 @@ const ENTITY_TYPE_PATTERN = /^[a-z][a-z0-9_.:-]{0,63}$/;
 function sanitizeActor(actor: OperationalLogEvent["actor"]): {
   actorUserId: string | null;
   actorEmail: { domain: string | null; hash: string } | null;
-  actorForAudit: { userId: string; email: null; role: AppRole | null } | null;
+  actorForAudit: { userId: string | null; email: null; role: AppRole | null } | null;
   actorWasProvided: boolean;
 } {
   if (actor === null || actor === undefined) {
@@ -499,7 +499,9 @@ function sanitizeActor(actor: OperationalLogEvent["actor"]): {
   return {
     actorUserId,
     actorEmail,
-    actorForAudit: actorUserId ? { userId: actorUserId, email: null, role } : null,
+    // actor_user_id is a uuid FK to auth.users; the pseudonymous hash stays in
+    // the redacted console payload only and must never reach the audit row.
+    actorForAudit: actorUserId ? { userId: null, email: null, role } : null,
     actorWasProvided: true,
   };
 }

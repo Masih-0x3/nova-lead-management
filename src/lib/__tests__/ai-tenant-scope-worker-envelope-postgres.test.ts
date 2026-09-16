@@ -55,7 +55,7 @@ function docker(args: string[], allowFailure = false): string {
 
 function waitForPostgres(container: string, database: string): void {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    if (docker(["exec", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database, "-Atc", "SELECT 1"], true) === "1") return;
+    if (docker(["exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], true).includes("accepting")) return;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
   }
   throw new Error(`PostgreSQL did not become ready: ${docker(["logs", container], true)}`);
@@ -421,7 +421,7 @@ describe("G-004A AI tenant scope and worker envelope", () => {
         expect(version.version.startsWith("16")).toBe(true);
 
         const full = await resetTo(client);
-        expect(full).toEqual({ discovered: 62, applied: 60, skipped: 2 });
+        expect(full).toEqual({ discovered: 91, applied: 89, skipped: 2 });
         await client.unsafe(g007p2Sql);
         const verificationIndexes = await client.unsafe<Array<{ indexname: string; indexdef: string }>>(`
           SELECT indexname,indexdef FROM pg_catalog.pg_indexes
@@ -839,21 +839,23 @@ describe("G-007P20A tenant researcher actor usage index", () => {
           queriesSource.indexOf("export async function", queriesSource.indexOf("export async function getAiUsageForActor(") + 1),
         );
         expect(helperSource.match(/requestSources: string\[\] = \["researcher_ai_check", "researcher_pitch_pack"\]/g)).toHaveLength(1);
-        expect(helperSource).toContain("const params = [actorUserId, ...sources, sinceIso]");
+        expect(helperSource).toContain("requireAiTenantId(");
+        expect(helperSource).toContain("const params = [tenantId, actorUserId, ...sources, sinceIso]");
         const usageSelectStart = helperSource.indexOf("`SELECT id, verification_id, estimated_cost, was_cached, metadata");
         const usageSelectEnd = helperSource.indexOf(").all(...params)", usageSelectStart) + ").all(...params)".length;
         expect(usageSelectStart).toBeGreaterThanOrEqual(0);
         expect(usageSelectEnd).toBeGreaterThan(usageSelectStart);
         const usageSelectSource = helperSource.slice(usageSelectStart, usageSelectEnd);
         expect(usageSelectSource).toContain("FROM ai_usage_events");
-        expect(usageSelectSource).toContain("WHERE actor_user_id = ?");
+        expect(usageSelectSource).toContain("WHERE tenant_id = ?");
+        expect(usageSelectSource).toContain("AND actor_user_id = ?");
         expect(usageSelectSource).toContain("request_source IN (${placeholders})");
         expect(usageSelectSource).toContain("created_at >= ?");
-        expect(usageSelectSource).not.toMatch(/tenant_id|created_at\s*[<]=?/);
+        expect(usageSelectSource).not.toMatch(/created_at\s*[<]=?/);
 
         // Fresh empty install and exact final replay.
         const fresh = await resetTo(client, G007P20A);
-        expect(fresh).toEqual({ discovered: 62, applied: 51, skipped: 2 });
+        expect(fresh).toEqual({ discovered: 91, applied: 51, skipped: 2 });
         expect((await client.unsafe(`SELECT count(*)::integer count FROM pg_catalog.pg_class i
           JOIN pg_catalog.pg_namespace n ON n.oid=i.relnamespace
           WHERE n.nspname='public' AND i.relname LIKE 'idx_g007p20a_%'`))[0].count).toBe(0);
@@ -1099,7 +1101,7 @@ describe("G-007P20A tenant researcher actor usage index", () => {
         // Full-chain replay accounts for exactly one new portable migration,
         // then the migration itself remains an exact final no-op.
         const full = await resetTo(client);
-        expect(full).toEqual({ discovered: 62, applied: 60, skipped: 2 });
+        expect(full).toEqual({ discovered: 91, applied: 89, skipped: 2 });
         const finalBeforeReplay = await g007p20aCatalogSnapshot(client);
         await client.unsafe(g007p20aSql);
         expect(await g007p20aCatalogSnapshot(client)).toEqual(finalBeforeReplay);

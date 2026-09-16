@@ -190,7 +190,7 @@ const OUTCOME_VERSION = /^outcome-version:[0-9a-f]{64}$/u;
 const PROPOSAL_VERSION = /^learning-proposal-version:[0-9a-f]{64}$/u;
 const OUTCOMES = new Set<OutcomeTaxonomy>([
   "copied", "exported", "sent_manually", "delivery_unknown", "bounced", "unknown_bounce", "opted_out", "complaint",
-  "replied", "meeting_set", "opportunity", "won", "lost", "not_interested", "unknown",
+  "replied", "meeting_set", "opportunity", "won", "lost", "not_interested", "disqualified", "unknown",
 ]);
 const METRICS = new Set<MetricKey>(["reply_rate", "meeting_rate", "opportunity_rate", "win_rate", "opt_out_rate", "bounce_rate"]);
 const CHANGE_KINDS = new Set(["qualification_threshold_basis_points", "score_weight_basis_points", "query_family_status", "outreach_guidance_status"]);

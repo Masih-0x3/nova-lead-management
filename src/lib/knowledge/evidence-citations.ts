@@ -44,6 +44,8 @@ const BINDING_FIELDS = [
 const BLOCK_FIELDS = ["kind", "ordinal", "text", "contentHash", "sourceLocator"] as const;
 const LINE_LOCATOR_FIELDS = ["kind", "label", "startLine", "endLine"] as const;
 const ROW_LOCATOR_FIELDS = ["kind", "label", "row"] as const;
+const PAGE_LOCATOR_FIELDS = ["kind", "label", "page", "block"] as const;
+const SECTION_LOCATOR_FIELDS = ["kind", "label", "sectionPath", "block"] as const;
 const ANCHOR_FIELDS = [
   "blockOrdinal", "blockContentHash", "sourceLocator", "quoteStart", "quoteEnd", "quote", "quoteHash",
 ] as const;
@@ -207,7 +209,7 @@ function stableId(prefix: "evidence" | "citation", parts: readonly string[]): st
   return `${prefix}:${hashReference(parts).slice("sha256:".length)}`;
 }
 
-function parseLocator(value: unknown): RenderSafeSourceLocator | null {
+export function parseRenderSafeSourceLocator(value: unknown): RenderSafeSourceLocator | null {
   if (typeof value !== "object" || value === null || isProxy(value) || Array.isArray(value)) return null;
   const kindDescriptor = Object.getOwnPropertyDescriptor(value, "kind");
   if (!kindDescriptor || !("value" in kindDescriptor) || !kindDescriptor.enumerable) return null;
@@ -226,14 +228,54 @@ function parseLocator(value: unknown): RenderSafeSourceLocator | null {
     const label = `Row ${row}`;
     return record.label === label ? Object.freeze({ kind: "row", label, row }) : null;
   }
+  if (kindDescriptor.value === "page") {
+    const record = exactRecord(value, PAGE_LOCATOR_FIELDS);
+    const page = record && integer(record.page, 1, 500);
+    const block = record && integer(record.block, 0, 1_000_000);
+    if (!record || page === null || block === null) return null;
+    const label = `Page ${page}`;
+    return record.label === label ? Object.freeze({ kind: "page", label, page, block }) : null;
+  }
+  if (kindDescriptor.value === "section") {
+    const record = exactRecord(value, SECTION_LOCATOR_FIELDS);
+    const sectionPath = record && sectionPathValue(record.sectionPath);
+    const block = record && integer(record.block, 0, 1_000_000);
+    if (!record || !sectionPath?.length || block === null) return null;
+    const label = `Section ${sectionPath.join(" / ")}`;
+    return record.label === label
+      ? Object.freeze({ kind: "section", label, sectionPath, block })
+      : null;
+  }
   return null;
 }
 
+function sectionPathValue(value: unknown): readonly string[] | null {
+  const entries = exactArray(value, 20);
+  if (!entries) return null;
+  const path: string[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== "string" || entry.length === 0 || entry.length > 500
+      || entry.trim() !== entry) return null;
+    path.push(entry);
+  }
+  return Object.freeze(path);
+}
+
 function sameLocator(left: RenderSafeSourceLocator, right: RenderSafeSourceLocator): boolean {
-  return left.kind === right.kind && left.label === right.label
-    && (left.kind === "line_range" && right.kind === "line_range"
-      ? left.startLine === right.startLine && left.endLine === right.endLine
-      : left.kind === "row" && right.kind === "row" && left.row === right.row);
+  if (left.kind !== right.kind || left.label !== right.label) return false;
+  if (left.kind === "line_range" && right.kind === "line_range") {
+    return left.startLine === right.startLine && left.endLine === right.endLine;
+  }
+  if (left.kind === "row" && right.kind === "row") return left.row === right.row;
+  if (left.kind === "page" && right.kind === "page") {
+    return left.page === right.page && left.block === right.block;
+  }
+  if (left.kind === "section" && right.kind === "section") {
+    return left.block === right.block
+      && left.sectionPath.length === right.sectionPath.length
+      && left.sectionPath.every((part, index) => part === right.sectionPath[index]);
+  }
+  return false;
 }
 
 function parseScope(value: unknown): KnowledgeEvidenceScope | null {
@@ -312,7 +354,7 @@ function parseBinding(value: unknown): ExtractionBinding | null {
 
 function parseBlock(value: unknown, ordinal: number): KnowledgeExtractionBlock | null {
   const record = exactRecord(value, BLOCK_FIELDS);
-  const sourceLocator = record && parseLocator(record.sourceLocator);
+  const sourceLocator = record && parseRenderSafeSourceLocator(record.sourceLocator);
   if (!record || !sourceLocator || record.ordinal !== ordinal || typeof record.kind !== "string"
     || !BLOCK_KINDS.has(record.kind) || typeof record.text !== "string" || record.text.length === 0
     || record.text.length > MAX_BLOCK_CHARS || record.text.trim().length === 0 || hasUnsafeText(record.text)
@@ -371,7 +413,7 @@ export function createKnowledgeEvidenceCitations(value: unknown): KnowledgeEvide
     const blockOrdinal = record && integer(record.blockOrdinal, 0, blocks.length - 1);
     const quoteStart = record && integer(record.quoteStart, 0, MAX_BLOCK_CHARS);
     const quoteEnd = record && integer(record.quoteEnd, 1, MAX_BLOCK_CHARS);
-    const sourceLocator = record && parseLocator(record.sourceLocator);
+    const sourceLocator = record && parseRenderSafeSourceLocator(record.sourceLocator);
     if (!record || blockOrdinal === null || quoteStart === null || quoteEnd === null || !sourceLocator
       || typeof record.blockContentHash !== "string" || !HASH_REF.test(record.blockContentHash)
       || typeof record.quote !== "string" || record.quote.length === 0 || hasUnsafeText(record.quote)

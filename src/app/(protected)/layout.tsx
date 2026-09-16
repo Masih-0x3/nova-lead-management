@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { logoutAction } from "@/app/login/actions";
 import { getSession, getTenantSession } from "@/lib/auth";
+import { InvitationAcceptControl } from "@/components/admin/invitation-accept-control";
 import { NavHeader } from "@/components/nav-header";
 import { withTenantDbContext } from "@/lib/db";
 import { getAdminFulfillmentSummary } from "@/lib/db/queries";
@@ -44,6 +45,9 @@ export default async function ProtectedLayout({
           <p className="mt-3 text-xs" style={{ color: "var(--text-tertiary)" }}>
             {session.email}
           </p>
+          {session.status === "pending"
+            ? <div className="mt-6"><InvitationAcceptControl /></div>
+            : null}
           <form action={logoutAction} className="mt-6">
             <button type="submit" className="btn-primary">
               Log out
@@ -103,6 +107,7 @@ export default async function ProtectedLayout({
       <NavHeader
         email={session.email}
         role={session.role}
+        tenantRole={tenantSession?.userId === session.userId ? tenantSession.role : null}
         scope={shellScope}
         fulfillmentCount={fulfillmentCount}
         logoutAction={logoutAction}

@@ -617,6 +617,7 @@ export interface Settings {
   scheduler_enrichment_enabled: boolean;
   scheduler_artifact_enabled: boolean;
   scheduler_score_recompute_enabled: boolean;
+  scheduler_connector_execution_enabled: boolean;
   openai_api_key_configured: boolean;
   openai_api_key_source: "ui" | "env" | "none";
   google_places_api_key_configured: boolean;
@@ -1843,6 +1844,7 @@ function parseSettingsRow(row: Record<string, unknown>): Settings {
     scheduler_enrichment_enabled: ((row.scheduler_enrichment_enabled as number) ?? 1) === 1,
     scheduler_artifact_enabled: ((row.scheduler_artifact_enabled as number) ?? 1) === 1,
     scheduler_score_recompute_enabled: ((row.scheduler_score_recompute_enabled as number) ?? 1) === 1,
+    scheduler_connector_execution_enabled: ((row.scheduler_connector_execution_enabled as number) ?? 1) === 1,
     openai_api_key_configured: !!row.openai_api_key_encrypted || !!process.env.OPENAI_API_KEY,
     openai_api_key_source: row.openai_api_key_encrypted ? "ui" : process.env.OPENAI_API_KEY ? "env" : "none",
     google_places_api_key_configured: !!row.google_places_api_key_encrypted || !!process.env.GOOGLE_PLACES_API_KEY,
@@ -2004,6 +2006,10 @@ export async function updateSettings(settings: Partial<Settings>): Promise<void>
     updates.push("scheduler_score_recompute_enabled = ?");
     values.push(settings.scheduler_score_recompute_enabled ? 1 : 0);
   }
+  if (settings.scheduler_connector_execution_enabled !== undefined) {
+    updates.push("scheduler_connector_execution_enabled = ?");
+    values.push(settings.scheduler_connector_execution_enabled ? 1 : 0);
+  }
   if (settings.google_auto_pagination_enabled !== undefined) {
     updates.push("google_auto_pagination_enabled = ?");
     values.push(settings.google_auto_pagination_enabled ? 1 : 0);
@@ -2064,7 +2070,9 @@ export function isSchedulerWorkerEnabled(settings: Settings, workerName: Schedul
   if (workerName === "crawl") return settings.scheduler_crawl_enabled;
   if (workerName === "enrichment") return settings.scheduler_enrichment_enabled;
   if (workerName === "artifact") return settings.scheduler_artifact_enabled;
-  return settings.scheduler_score_recompute_enabled;
+  if (workerName === "score_recompute") return settings.scheduler_score_recompute_enabled;
+  if (workerName === "agent_runtime") return true;
+  return settings.scheduler_connector_execution_enabled;
 }
 
 const STALE_WORKER_RUN_ERROR = "Worker run interrupted or timed out before completion.";
@@ -2207,7 +2215,7 @@ async function getSchedulerHealthInternal(): Promise<SchedulerHealth> {
         worker.workerName === "crawl" ? (crawlProgress ? crawlProgress.pending + crawlProgress.running : 0) :
         worker.workerName === "enrichment" ? Number(enrichmentRow.count ?? 0) :
         worker.workerName === "artifact" ? Number(artifactRow.count ?? 0) :
-        Number(staleScoreRow.count ?? 0),
+        worker.workerName === "score_recompute" ? Number(staleScoreRow.count ?? 0) : 0,
     }));
   const progressByWorker: Record<SchedulerWorkerName, SchedulerWorkerHealth["progress"]> = {
     ai_verification: {
@@ -2245,6 +2253,22 @@ async function getSchedulerHealthInternal(): Promise<SchedulerHealth> {
     score_recompute: {
       total: Number(staleScoreRow.count ?? 0),
       pending: Number(staleScoreRow.count ?? 0),
+      running: 0,
+      completed: 0,
+      failed: 0,
+      canceled: 0,
+    },
+    connector_execution: {
+      total: 0,
+      pending: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      canceled: 0,
+    },
+    agent_runtime: {
+      total: 0,
+      pending: 0,
       running: 0,
       completed: 0,
       failed: 0,
@@ -2423,7 +2447,8 @@ function parseWorkerRunRow(row: Record<string, unknown>): WorkerRun {
 }
 
 function normalizeSchedulerWorkerName(value: unknown): SchedulerWorkerName {
-  if (value === "crawl" || value === "enrichment" || value === "artifact" || value === "score_recompute") return value;
+  if (value === "crawl" || value === "enrichment" || value === "artifact" || value === "score_recompute"
+    || value === "connector_execution" || value === "agent_runtime") return value;
   return "ai_verification";
 }
 
@@ -3057,12 +3082,22 @@ export async function ensureGeographyBackfill(): Promise<void> {
          selection_json = COALESCE(selection_json, ?)
      WHERE market_id IS NULL`
   ).run(COLORADO_MARKET_ID, JSON.stringify({ countryCode: "US", marketId: COLORADO_MARKET_ID, source: "legacy_colorado" }));
+  // user_market_access is tenant-scoped on Postgres: the scope trigger requires
+  // tenant_id plus an active tenant-wide membership for the grantee. The legacy
+  // app_users grant is therefore derived per active tenant membership there;
+  // the local compat schema keeps the pre-tenant unscoped table.
   await db.prepare(
-    `INSERT INTO user_market_access (user_id, market_id, created_by_user_id)
-     SELECT user_id, ?, NULL
-     FROM app_users
-     WHERE role = 'researcher' AND status = 'active'
-     ON CONFLICT(user_id, market_id) DO NOTHING`
+    process.env.DATABASE_URL?.trim()
+      ? `INSERT INTO user_market_access (tenant_id, workspace_id, user_id, market_id, created_by_user_id)
+         SELECT m.tenant_id, NULL, m.auth_identity_id::text, ?, NULL
+         FROM tenant_memberships m
+         WHERE m.status = 'active' AND m.workspace_id IS NULL
+         ON CONFLICT ON CONSTRAINT user_market_access_tenant_workspace_user_market_unique DO NOTHING`
+      : `INSERT INTO user_market_access (user_id, market_id, created_by_user_id)
+         SELECT user_id, ?, NULL
+         FROM app_users
+         WHERE role = 'researcher' AND status = 'active'
+         ON CONFLICT(user_id, market_id) DO NOTHING`
   ).run(COLORADO_MARKET_ID);
 }
 
@@ -3163,6 +3198,13 @@ export async function getCellCoverageStatus(cellId: string, categories?: readonl
 }
 
 export async function replaceUserMarketAccess(userId: string, marketIds: string[], actorUserId?: string | null): Promise<UserMarketAccess[]> {
+  // Retired path: on PostgreSQL, user_market_access rows are tenant-scoped and
+  // an unscoped DELETE/INSERT would either fail the scope trigger or destroy
+  // grants in other tenants. The tenant-facing callers are closed; this writer
+  // remains only for the unscoped local compatibility schema.
+  if (process.env.DATABASE_URL?.trim()) {
+    throw new Error("replaceUserMarketAccess is unavailable on PostgreSQL: market grants are tenant-scoped");
+  }
   const db = await getDb();
   const uniqueMarketIds = Array.from(new Set(marketIds.map((id) => id.trim()).filter(Boolean)));
 
@@ -10603,7 +10645,7 @@ export async function getTeamBoardSummary(): Promise<TeamBoardSummary> {
        ), 0) as quote_requests_open
      FROM tenant_scope tenant
      JOIN tenant_memberships member
-       ON member.tenant_id = tenant.tenant_id
+       ON CAST(member.tenant_id AS text) = tenant.tenant_id
       AND member.status = 'active'
       AND member.auth_identity_id IS NOT NULL
      JOIN tenant_role_bindings member_role
@@ -10619,7 +10661,7 @@ export async function getTeamBoardSummary(): Promise<TeamBoardSummary> {
       AND l.assigned_to_user_id = au.user_id
       AND COALESCE(l.is_excluded, 0) = 0
       AND l.archived_at IS NULL
-     GROUP BY au.user_id, au.email, au.display_name, member_role.role
+     GROUP BY member.tenant_id, au.user_id, au.email, au.display_name, member_role.role
      ORDER BY member_role.role ASC, au.email ASC`
   ).all<Record<string, unknown>>(
     tenantId,
@@ -10795,7 +10837,7 @@ export async function getResearcherTeamBoardSummary(userId: string): Promise<Tea
        ), 0) as quote_requests_open
      FROM tenant_scope tenant
      JOIN tenant_memberships member
-       ON member.tenant_id = tenant.tenant_id
+       ON CAST(member.tenant_id AS text) = tenant.tenant_id
       AND member.status = 'active'
       AND member.auth_identity_id = ?
      JOIN tenant_role_bindings member_role
@@ -10811,7 +10853,7 @@ export async function getResearcherTeamBoardSummary(userId: string): Promise<Tea
       AND l.assigned_to_user_id = au.user_id
       AND COALESCE(l.is_excluded, 0) = 0
       AND l.archived_at IS NULL
-     GROUP BY au.user_id, au.email, au.display_name, member_role.role`
+     GROUP BY member.tenant_id, au.user_id, au.email, au.display_name, member_role.role`
   ).get<Record<string, unknown>>(
     tenantId,
     today,
@@ -11071,7 +11113,7 @@ function buildActivityWhere(
   extraConditions: string[] = [],
 ): string {
   const conditions = [
-    `${alias}.tenant_id = (SELECT tenant_id FROM tenant_scope)`,
+    `CAST(${alias}.tenant_id AS text) = (SELECT tenant_id FROM tenant_scope)`,
     ...extraConditions,
   ];
   if (since) {

@@ -1,4 +1,11 @@
-export type SchedulerWorkerName = "ai_verification" | "crawl" | "enrichment" | "artifact" | "score_recompute";
+export type SchedulerWorkerName =
+  | "ai_verification"
+  | "crawl"
+  | "enrichment"
+  | "artifact"
+  | "score_recompute"
+  | "connector_execution"
+  | "agent_runtime";
 
 export interface SchedulerWorkerMetadata {
   workerName: SchedulerWorkerName;
@@ -79,6 +86,32 @@ export const SCHEDULER_WORKER_METADATA: SchedulerWorkerMetadata[] = [
     inputLabel: "Leads with stale scores",
     outputLabel: "Fresh quality buckets and sales queue priority",
     cadenceMinutes: 10,
+  },
+  {
+    workerName: "connector_execution",
+    label: "Connector Execution",
+    shortLabel: "Connectors",
+    purpose: "Claims queued source-run units and executes the next fixture page under connector policy and budget.",
+    endpoint: "/api/connectors/process-next",
+    schedule: "Every minute while a source run has runnable units",
+    externalApi: "None",
+    costSource: "Fixture-only connector units reserved under approved source policies",
+    inputLabel: "Queued or retryable source-run units",
+    outputLabel: "Settled observations, usage records, and continuation units",
+    cadenceMinutes: 1,
+  },
+  {
+    workerName: "agent_runtime",
+    label: "Agent Runtime",
+    shortLabel: "Agent Runs",
+    purpose: "Claims one queued specialist agent run under its bound lease and executes the bounded fixture attempt.",
+    endpoint: "/api/agent-runtime/process-next",
+    schedule: "Dispatched per queued agent run",
+    externalApi: "None",
+    costSource: "Deterministic fixture provider only",
+    inputLabel: "Queued or retryable agent runs bound to the dispatch lease",
+    outputLabel: "Completed, failed, or rescheduled agent runs with immutable step and tool-call records",
+    cadenceMinutes: 1,
   },
 ];
 

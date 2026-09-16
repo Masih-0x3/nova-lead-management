@@ -25,6 +25,7 @@ export async function confirmRecoveryTokenAction(formData: FormData) {
       category: "auth",
       severity: "error",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "missing_auth_config" },
     });
     redirect("/login?error=missing_config");
@@ -43,6 +44,7 @@ export async function confirmRecoveryTokenAction(formData: FormData) {
       category: "auth",
       severity: "warn",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "invalid_auth_link_token" },
     });
     redirect("/forgot-password?error=invalid_recovery_link");
@@ -61,6 +63,7 @@ export async function confirmRecoveryTokenAction(formData: FormData) {
       category: "auth",
       severity: "warn",
       entityType: "auth",
+      scope: "platform",
       metadata: { reason: "verify_otp_failed", type: parsed.data.type, error: error.message },
     });
     redirect("/forgot-password?error=expired_link");
@@ -72,6 +75,7 @@ export async function confirmRecoveryTokenAction(formData: FormData) {
     category: "auth",
     severity: "info",
     entityType: "auth",
+    scope: "platform",
     metadata: { type: parsed.data.type, next },
   });
   logRouteTiming(307, { result: "auth_link_verified", type: parsed.data.type, next });

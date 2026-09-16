@@ -1,207 +1,67 @@
 # Nova Trade Lead Management
 
-For the fastest complete system map, use `docs/ULTRA_SYSTEM_ATLAS.md`. For production deployment, use `docs/VERCEL_SUPABASE_DEPLOYMENT.md`. For backup/restore, use `docs/DATA_RECOVERY.md`. For current Codex handoff context, use `docs/CODEX_HANDOFF.md`.
+An invite-only, multitenant lead-intelligence application: approved business evidence becomes reviewed strategy, qualified accounts and contacts, and human-approved outreach for copy/export. Nova Trade does not send outreach automatically.
 
-**Source of truth:** This repository is the Nova Trade Lead Management application.
+Start with the [current handoff](docs/CODEX_HANDOFF.md) and [lean finish plan](docs/plans/2026-08-29-lean-finish-plan.md). The historical implementation cards are reference material, not a backlog to restart.
 
-Private invite-only lead discovery and outreach CRM (Customer Relationship Management) for website-sales operations. Discovers local businesses with weak or missing websites via the official Google Places API (Application Programming Interface), scores and prioritizes them, and provides manual outreach, quality review, fulfillment, demo, and team-accountability tools.
+## Product and architecture
 
-## Architecture
+The application combines tenant provisioning and operations; document upload, quarantine, scanning, extraction, and cited knowledge; business understanding, ICPs and lead plays; governed discovery and account/contact qualification; and approved outreach artifacts, outcomes, and reporting. The earlier website-sales CRM remains available alongside these workflows.
 
-```
-Next.js App Router (TypeScript)
-+-- Supabase Postgres in production, SQLite locally without DATABASE_URL
-+-- Google Places API (New) - lead discovery & enrichment
-+-- Server Actions - mutations (crawl, leads, settings)
-+-- API Routes - worker endpoints, CSV export, health check
-`-- Liquid Glass UI - Tailwind CSS custom theme
-```
+- Next.js App Router, React, TypeScript, and Tailwind CSS.
+- Supabase Auth and PostgreSQL are authoritative for the multitenant product. Tenant/workspace context, RLS, worker leases, budgets, policy, and human approval are explicit boundaries.
+- Private Supabase Storage and ClamAV serve the production document path. Local adapters require an explicit acceptance-only opt-in; missing configuration fails closed.
+- SQLite is a compatibility path when `DATABASE_URL` is absent, not a substitute for Supabase Auth or PostgreSQL tenant/worker acceptance.
+- Vitest, real disposable PostgreSQL suites, production-build Playwright tests, and isolated service rehearsals provide distinct evidence lanes.
 
-**Data flow:** Dashboard or scheduler starts a crawl run -> worker leases one unit -> Places API text search -> classify website -> compute score -> atomic lead upsert -> enrichment worker leases qualifying leads -> UI displays quality, outreach, and fulfillment state.
+See the [product requirements](docs/product-requirements-multi-tenant-lead-intelligence-platform.md) for scope and the [system atlas](docs/ULTRA_SYSTEM_ATLAS.md) for deeper navigation. Historical snapshots in those documents should be read alongside the current handoff.
 
-## Tech Stack
+## Local setup
 
-- Next.js 16 + React 19 + TypeScript
-- Tailwind CSS with Apple Liquid Glass-inspired theme
-- Supabase Postgres via `postgres` in production
-- SQLite via `better-sqlite3` for local development and migration export
-- Zod for server action input validation
-- Vitest for unit tests
-- Sonner for toast notifications
+Use Node 24 (see `.node-version` and `.nvmrc`) and Docker or the supported Docker-compatible local runtime.
 
-## Project Structure
-
-```
-src/
-├── app/
-│   ├── (protected)/          # Auth-gated routes
-│   │   ├── dashboard/        # Crawl controls, stats, metrics
-│   │   ├── coverage/         # Zip-by-zip crawl progress
-│   │   ├── explore/          # Map/list exploration
-│   │   ├── leads/            # Leads table + detail pages
-│   │   ├── quality/          # Lead quality review
-│   │   ├── queue/            # Now Queue — top actionable leads
-│   │   ├── scheduler/        # Worker health and controls
-│   │   ├── statistics/       # Conversion and value proof reporting
-│   │   ├── team/             # Team accountability
-│   │   ├── users/            # Admin-created users and market access
-│   │   └── settings/         # Niche weights, hosts, budget
-│   ├── api/
-│   │   ├── ai/                  # AI verification and artifact workers
-│   │   ├── crawl/process-next/  # Crawl worker polling endpoint
-│   │   ├── crawl/enrich-next/   # Enrichment worker endpoint
-│   │   ├── export/csv/          # CSV export endpoint
-│   │   └── health/              # Health check
-│   ├── demo/[slug]/          # Public published demo page
-│   ├── login/                # Authentication
-│   ├── privacy/              # Public trust page
-│   ├── terms/                # Public terms page
-│   ├── support/              # Public support page
-│   ├── data-sources/         # Public data-source disclosure
-│   ├── error.tsx             # Error boundary
-│   ├── not-found.tsx         # Custom 404
-│   └── layout.tsx            # Root layout + Toaster
-├── components/
-│   ├── page-shell.tsx        # Reusable page layout
-│   ├── nav-header.tsx        # Responsive navigation
-│   └── confirm-dialog.tsx    # Reusable confirmation modal
-├── lib/
-│   ├── db/
-│   │   ├── index.ts          # SQLite/Postgres connection adapter
-│   │   ├── schema.ts         # All CREATE TABLE statements
-│   │   ├── queries.ts        # Typed data access layer
-│   │   └── seed-zips.ts      # Colorado zip code seeder
-│   ├── crawl/
-│   │   ├── worker.ts         # Sequential crawl unit processor
-│   │   └── actions.ts        # Crawl run server actions
-│   ├── leads/
-│   │   └── actions.ts        # Lead CRUD + outreach server actions
-│   ├── settings/
-│   │   └── actions.ts        # Settings server actions
-│   ├── google-places.ts      # Places API client with retry
-│   ├── classify-website.ts   # Website status classifier
-│   ├── scoring.ts            # Lead scoring with factor breakdown
-│   ├── outreach-package.ts   # Template-based outreach generator
-│   ├── auth.ts               # Supabase-backed session and app-role authorization
-│   └── __tests__/            # Unit tests
-└── data/
-    └── colorado-zips.json    # Static zip code dataset
+```bash
+npm ci
+npx playwright install chromium
 ```
 
-## Local Setup
+The [staging guide](docs/STAGING.md) describes the reproducible, disposable acceptance environment. It uses synthetic identities/data and a production Next build; no cloud account or paid provider is required. The GitHub `staging` environment records the CI rehearsal, not an always-on hosted URL.
 
-1. Install dependencies:
+```bash
+node scripts/staging-rehearsal.mjs rehearse
+```
 
-   ```bash
-   npm install
-   ```
+For persistent development, use the local Supabase lifecycle documented in [TESTING.md](docs/TESTING.md), then `npm run dev`. Keep the canonical `http://localhost:3000` origin consistent for authenticated browser tests. Use separate admin and researcher identities; an admin session does not prove researcher authorization.
 
-2. Copy env template and set Supabase Auth plus API keys:
-
-   ```bash
-   cp .env.example .env.local
-   ```
-
-   Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `NOSITE_BOOTSTRAP_ADMIN_EMAIL`, and
-   `NOSITE_ENCRYPTION_SECRET`. Create the bootstrap admin email/password in
-   Supabase Auth before logging in.
-
-3. Get a Google Places API key:
-
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a project (or select existing)
-   - Enable the "Places API (New)" service
-   - Create an API key under Credentials
-   - Add it to `.env.local` as `GOOGLE_PLACES_API_KEY=your_key_here`
-
-4. Start the app:
-
-   ```bash
-   npm run dev
-   ```
-
-5. Visit `http://localhost:3000` and sign in with the credentials from `.env.local`.
+Use `.env.example` as the configuration reference. Keep `.env.local`, database files, service keys, certificates, auth storage state, traces, and recovery archives private and untracked. Do not copy production credentials into the disposable staging environment.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Production build |
-| `npm run typecheck` | Run TypeScript without emitting files |
-| `npm run test` | Run unit tests |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run lint` | Run ESLint |
-| `npm run test:e2e:public` | Run public read-only Playwright smoke |
-| `npm run test:e2e` | Run public and authenticated read-only Playwright suites; fails without E2E auth |
-| `npm run test:e2e:mutating` | Run explicitly enabled mutation workflows on an approved target |
-| `npm run release:check` | Run the Node 24 local release gate |
-| `npm run db:export:sqlite` | Export ignored JSON files from local SQLite |
-| `npm run db:verify:recovery` | Run read-only recovery contract/schema/export checks |
-| `npm run db:import:supabase` | Import exported JSON into Supabase Postgres |
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Development server |
+| `npm run build` / `npm start` | Production build / server |
+| `npm run typecheck` / `npm run lint` | Static checks |
+| `npm test` | Unit and environment-gated test collection; skips are not integration proof |
+| `npm run release:check` | Composed Node 24 gate: static checks, recovery schema checks, portable tests, production build, public browser smoke |
+| `node scripts/ci-postgres-rehearsal.mjs all` | All 14 L-02 restricted-role PostgreSQL lanes, with owned cleanup |
+| `node scripts/staging-rehearsal.mjs rehearse` | Isolated Supabase staging and role-separated authenticated acceptance |
+| `node scripts/l03-real-services.mjs` | Disposable private Storage/ClamAV integration rehearsal |
+| `npm run test:e2e:public` | Public read-only browser smoke against an existing target |
+| `npm run test:e2e:auth` | Authenticated browser project; requires explicit credentials/state |
+| `npm run test:e2e:acceptance` | Explicitly enabled L-08 happy/degraded acceptance on an approved target |
+| `npm run db:verify:recovery` | Read-only schema/portable-export verification |
 
-See [`docs/TESTING.md`](docs/TESTING.md) for the suite boundaries, auth requirements, and remote mutation guard.
+See [TESTING.md](docs/TESTING.md) for opt-in database flags and browser safety guards. The final release evidence is in the [lean finish plan](docs/plans/2026-08-29-lean-finish-plan.md).
 
-## Key Features
+## Recovery and release boundaries
 
-### Discovery Engine
-- Sequential zip-code-by-zip-code coverage of Colorado
-- Google Places API Text Search with pagination
-- Deduplication by place_id
-- Resume-safe crawl runs with start/pause/resume
+The frozen v4 portable JSON format covers **37 legacy tables**. It does not back up the complete multitenant PostgreSQL product. Use [DATA_RECOVERY.md](docs/DATA_RECOVERY.md) for SQLite transfer/compatibility and [DATA_RECOVERY_POSTGRES.md](docs/DATA_RECOVERY_POSTGRES.md) for the separate native PostgreSQL application-schema recovery contract.
 
-### Website Classification
-- Categorizes businesses as `none`, `social`, `basic`, or `custom`
-- Configurable host lists for social and basic site detection
+Auth identities, Storage object bytes, Vault secrets, encryption keys, extensions, and deployment configuration have separate recovery boundaries. A successful public-schema restore alone is not a complete Supabase disaster-recovery claim.
 
-### Scoring & Ranking
-- Formula: `log(1 + reviews) * rating * niche_weight * website_multiplier`
-- Explainable score factor breakdown on lead detail
-- Recompute all scores when settings change
+The [document-service runbook](docs/validation/2026-09-14-l03-real-services-rehearsal.md) records the real-provider test boundary and configuration requirements. The chosen Storage deployment must enforce the application's short-lived upload-capability contract; a provider's longer-lived default is not automatically acceptable.
 
-### CRM & Outreach
-- Lead status pipeline: new -> verified -> contacted -> preview_sent -> meeting_set -> closed
-- Outreach event logging with timeline
-- Now Queue with top 25 actionable leads
-- Template-based outreach package generator with copy-to-clipboard
-- Reminder dates and conversion tracking
+The [deployment runbook](docs/VERCEL_SUPABASE_DEPLOYMENT.md) is an operator reference, not deployment authorization. Production needs its own infrastructure, secrets, least-privilege review, backup policy, provider budget/approval, authenticated smoke, and named-owner go/no-go. Staging or a merged PR does not enroll customers or activate paid providers.
 
-### Budget Controls
-- Max API calls per run and per day
-- Auto-pause when budget limits are reached
-- API cost estimation on dashboard
-
-### Export
-- CSV export with filter-aware query parameters
-
-## Database
-
-Local development uses SQLite at `nosite-leads.db` when `DATABASE_URL` is not set. Production uses Supabase Postgres through the `DATABASE_URL` transaction pooler connection string. Apply every file in `supabase/migrations/` in timestamp order; later migrations add auth, scheduler, enrichment lease, and demo lifecycle fields.
-
-Export/import never applies migrations or backs up Supabase Auth/Vault. Follow
-[`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md) for the 23-table recovery
-contract, protected-column exclusions, verification, restore order, and rollback.
-
-Core tables:
-
-- `zip_codes` — Colorado zip codes with city/lat/lng
-- `crawl_runs` — Run metadata and status
-- `crawl_units` — Individual zip+category processing units
-- `leads` — Discovered businesses with scores
-- `outreach_events` — Contact history per lead
-- `settings` — Configuration (niche weights, hosts, budget)
-- `audit_logs` — Key action history
-- `place_cache` — Raw API response cache
-- `demos` — Draft/published/revoked demo lifecycle and view metadata
-
-## Known Limitations
-
-- Invite-only access only; no self-serve signup or billing
-- No automated outreach sending (copy-to-clipboard only)
-- Colorado zip codes only by default (expandable via data file)
-- Authenticated rendered browser QA requires `E2E_STORAGE_STATE` or `E2E_SUPABASE_EMAIL`/`E2E_SUPABASE_PASSWORD`; missing auth fails the authenticated gate instead of reporting skipped success
-
-## API Compliance
-
-This application uses only official Google Places API (New) endpoints. No scraping of Google Search or Google Maps pages. No review text is stored or displayed.
+Automatic sending, mailbox/LinkedIn automation, self-serve billing/signup, broad CRM synchronization, non-U.S. expansion, and speculative connectors remain deferred. Discovery uses approved official APIs; no Google Search or Maps-page scraping is authorized.

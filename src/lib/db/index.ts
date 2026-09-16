@@ -2,10 +2,14 @@ import postgres, { type Sql, type TransactionSql } from "postgres";
 import path from "path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SCHEMA_SQL, MIGRATION_COLUMNS } from "./schema";
+import { SUPPORT_ACCESS_LOCAL_DDL } from "@/lib/tenancy/support-access-schema";
+import { TENANT_INVITATION_LOCAL_DDL } from "@/lib/tenancy/tenant-invitation-schema";
+import { TENANT_LIMITS_LOCAL_DDL } from "@/lib/tenancy/tenant-limits-schema";
 import { classifyBusinessType, isBusinessType } from "@/lib/business-types";
 import { getTenantContext, type TenantContext } from "@/lib/tenancy/context";
 import { getWorkerTenantContext, type WorkerTenantContext } from "@/lib/tenancy/worker-context";
 import { getSupportAccessContext, type SupportAccessContext } from "@/lib/tenancy/support-access";
+import { getSupportSession, type SupportSessionAssertion } from "@/lib/tenancy/support-session";
 import { isTenantRole } from "@/lib/permissions";
 import type Database from "better-sqlite3";
 
@@ -132,6 +136,12 @@ export async function getDb(): Promise<DbClient> {
   // Run additive migrations first so newly referenced index columns exist on upgraded databases.
   runSqliteMigrations(sqlite);
   sqlite.exec(SCHEMA_SQL);
+  // Tenant-operation DDL is additive on top of the frozen v1 schema: the
+  // invitation journal/records, the limit store, and the support-operation
+  // journal are all CREATE TABLE IF NOT EXISTS, applied once per process.
+  sqlite.exec(TENANT_INVITATION_LOCAL_DDL);
+  sqlite.exec(TENANT_LIMITS_LOCAL_DDL);
+  sqlite.exec(SUPPORT_ACCESS_LOCAL_DDL);
   await backfillLeadBusinessTypes(new SqliteClient(sqlite));
 
   _db = new SqliteClient(sqlite);
@@ -493,16 +503,28 @@ function resolveTenantDbContext(): TenantDbContext {
   const memberContext = getTenantContext();
   const workerContext = getWorkerTenantContext();
   const supportContext = getSupportAccessContext();
-  if ((memberContext ? 1 : 0) + (workerContext ? 1 : 0) + (supportContext ? 1 : 0) > 1) {
-    throw new TenantDbContextError("TENANT_DB_CONTEXT_CONFLICT");
+  const supportSession = getSupportSession();
+  if (memberContext || workerContext) {
+    if (supportContext || supportSession || (memberContext && workerContext)) {
+      throw new TenantDbContextError("TENANT_DB_CONTEXT_CONFLICT");
+    }
+    return memberContext ? createMemberDbContext(memberContext) : createWorkerDbContext(workerContext!);
   }
-  if (!memberContext && !workerContext && !supportContext) {
+  if (!supportContext && !supportSession) {
     throw new TenantDbContextError("TENANT_DB_CONTEXT_REQUIRED");
   }
 
-  if (memberContext) return createMemberDbContext(memberContext);
-  if (workerContext) return createWorkerDbContext(workerContext);
-  return createSupportDbContext(supportContext as SupportAccessContext);
+  // The support lane has two ambient shapes: the edge-asserted session
+  // (installed before check/authorizeAndRun runs) and the service-minted
+  // run context (installed inside the authorized callback). Both map to the
+  // same GUC envelope; when both are ambient they must describe the
+  // identical envelope or the lane is mixed.
+  const runContext = supportContext ? createSupportDbContext(supportContext) : null;
+  const sessionContext = supportSession ? createSupportSessionDbContext(supportSession) : null;
+  if (runContext && sessionContext && !sameTenantDbContext(runContext, sessionContext)) {
+    throw new TenantDbContextError("TENANT_DB_CONTEXT_CONFLICT");
+  }
+  return runContext ?? sessionContext!;
 }
 
 function createMemberDbContext(context: TenantContext): TenantDbContext {
@@ -611,6 +633,37 @@ function createSupportDbContext(context: SupportAccessContext): TenantDbContext 
     workerAction: null,
     workerPrincipalKind: null,
     correlationId: context.correlationId,
+  });
+}
+
+function createSupportSessionDbContext(assertion: SupportSessionAssertion): TenantDbContext {
+  if (
+    !isTenantDbUuid(assertion.tenantId) ||
+    (assertion.workspaceId !== null && !isTenantDbUuid(assertion.workspaceId)) ||
+    !isTenantDbUuid(assertion.actorAuthIdentityId) ||
+    !isTenantDbUuid(assertion.supportGrantId) ||
+    !isTenantDbText(assertion.correlationId)
+  ) {
+    throw new TenantDbContextError("TENANT_DB_CONTEXT_INVALID");
+  }
+
+  return Object.freeze({
+    source: "support",
+    tenantId: assertion.tenantId,
+    workspaceId: assertion.workspaceId,
+    actorId: assertion.actorAuthIdentityId,
+    membershipId: null,
+    role: null,
+    roleBindingId: null,
+    supportGrantId: assertion.supportGrantId,
+    jobId: null,
+    runId: null,
+    leaseId: null,
+    leaseGeneration: null,
+    workerName: null,
+    workerAction: null,
+    workerPrincipalKind: null,
+    correlationId: assertion.correlationId,
   });
 }
 
@@ -746,6 +799,12 @@ function normalizePostgresQuery(query: string): string {
     .replace(/julianday\(([^)]+)\)\s*-\s*julianday\(([^)]+)\)/g, "EXTRACT(EPOCH FROM (($1)::timestamptz - ($2)::timestamptz)) / 86400")
     .replace(/julianday\(([^)]+)\)\s*>\s*julianday\(([^)]+)\)/g, "($1)::timestamptz > ($2)::timestamptz")
     .replace(/julianday\(([^)]+)\)\s*<=\s*julianday\(([^)]+)\)/g, "($1)::timestamptz <= ($2)::timestamptz");
+
+  // The postgres.js driver infers a jsonb parameter type from a literal `?::jsonb`
+  // cast and JSON-encodes the bound value. Repositories already serialize via
+  // jsonText(), which would double-encode; routing the cast through ::text keeps
+  // the parameter text-typed so the server applies the jsonb cast itself.
+  normalized = normalized.replace(/\?::jsonb/g, "?::text::jsonb");
 
   let index = 0;
   normalized = normalized.replace(/\?/g, () => `$${++index}`);

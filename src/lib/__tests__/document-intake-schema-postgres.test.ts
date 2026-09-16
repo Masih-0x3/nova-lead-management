@@ -52,8 +52,7 @@ function docker(args: string[], allowFailure = false): string {
 
 function waitForPostgres(name: string): void {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    if (docker(["exec", name, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres",
-      "-d", DATABASE, "-Atc", "SELECT 1"], true) === "1") return;
+    if (docker(["exec", name, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], true).includes("accepting")) return;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
   }
   throw new Error(`PostgreSQL did not become ready: ${docker(["logs", name], true)}`);
@@ -101,7 +100,7 @@ async function replayAllMigrations(sql: Sql): Promise<void> {
     }
   }
   expect({ discovered: migrations.length, applied, skipped: SKIPPED.size })
-    .toEqual({ discovered: 62, applied: 60, skipped: 2 });
+    .toEqual({ discovered: 91, applied: 89, skipped: 2 });
 }
 
 function versionSql(versionId: string, objectKey: string): string {

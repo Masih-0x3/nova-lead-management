@@ -3,5 +3,7 @@ export * from "./errors";
 export * from "./extraction";
 export * from "./intake-service";
 export * from "./object-keys";
+export * from "./pipeline-service";
 export * from "./state-machine";
+export * from "./url-intake-service";
 export * from "./validation";

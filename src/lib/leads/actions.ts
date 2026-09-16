@@ -1761,123 +1761,124 @@ export async function queueQualityEnrichmentBatchAction(input: {
   });
 }
 
-export async function applyAiRecommendationAction(verificationId: string, action: string) {
+export async function applyAiRecommendationAction(verificationId: string, action: string, selector: TenantSessionSelector = {}) {
   const parsedAction = aiApplySchema.safeParse(action);
   if (!parsedAction.success) return { error: "Invalid AI recommendation action" };
-  await requirePermission(
+  const legacyPermission: LegacyPermission =
     parsedAction.data === "update_website" || parsedAction.data === "exclude_has_website"
       ? "lead:apply_ai_usable_website"
-      : "lead:apply_ai_opportunity",
-  );
-  await ensureDbReady();
+      : "lead:apply_ai_opportunity";
 
-  const verification = await getAiVerificationById(verificationId);
-  if (!verification) return { error: "AI verification not found" };
-  const lead = await queryLeadById(verification.lead_id);
-  if (!lead) return { error: "Lead not found" };
-  const hasUsableWebsite = verification.status === "site_found" && verification.website_viability_status === "usable";
+  return withTenantWideLeadActor(selector, legacyPermission, "lead.ai.recommendation.apply", "manager-mutation", async (tenantSession) => {
+    const verification = await getAiVerificationById(verificationId);
+    if (!verification) return { error: "AI verification not found" };
+    const lead = await getTenantOwnedLead(tenantSession, verification.lead_id);
+    if (!lead) return { error: "Lead not found" };
+    const hasUsableWebsite = verification.status === "site_found" && verification.website_viability_status === "usable";
 
-  if (parsedAction.data === "update_website") {
-    if (!verification.found_website_url) return { error: "No found website URL to apply." };
-    if (!hasUsableWebsite) return { error: "Only a usable, business-matched website can be applied." };
-    await applyAiFoundWebsite(lead.id, verification.found_website_url);
-    await createAuditLog("ai_found_website_applied", "lead", lead.id, { verificationId, websiteUrl: verification.found_website_url });
-  }
-
-  if (parsedAction.data === "exclude_has_website") {
-    if (!hasUsableWebsite) return { error: "Only a usable, business-matched website can exclude a lead as having a website." };
-    if (verification.found_website_url) {
+    if (parsedAction.data === "update_website") {
+      if (!verification.found_website_url) return { error: "No found website URL to apply." };
+      if (!hasUsableWebsite) return { error: "Only a usable, business-matched website can be applied." };
       await applyAiFoundWebsite(lead.id, verification.found_website_url);
+      await createAuditLog("ai_found_website_applied", "lead", lead.id, { verificationId, websiteUrl: verification.found_website_url });
     }
-    await dbSetLeadExclusion(lead.id, `AI found existing website${verification.found_website_url ? `: ${verification.found_website_url}` : ""}`);
-    await createAuditLog("ai_exclusion_applied", "lead", lead.id, { verificationId, websiteUrl: verification.found_website_url });
-  }
 
-  if (parsedAction.data === "mark_broken_site_opportunity") {
-    if (!isWeakWebsiteOpportunity(verification.website_viability_status)) {
-      return { error: "Only broken, parked, or placeholder website findings can be marked as a broken-site opportunity." };
+    if (parsedAction.data === "exclude_has_website") {
+      if (!hasUsableWebsite) return { error: "Only a usable, business-matched website can exclude a lead as having a website." };
+      if (verification.found_website_url) {
+        await applyAiFoundWebsite(lead.id, verification.found_website_url);
+      }
+      await dbSetLeadExclusion(lead.id, `AI found existing website${verification.found_website_url ? `: ${verification.found_website_url}` : ""}`);
+      await createAuditLog("ai_exclusion_applied", "lead", lead.id, { verificationId, websiteUrl: verification.found_website_url });
     }
-    const winProbabilityScore = computeLeadWinProbability(lead, {
-      status: "weak_site_found",
-      confidence: verification.confidence,
-      foundWebsiteUrl: verification.found_website_url,
-    }, verification.website_viability_status);
-    await markLeadBrokenSiteOpportunity(
-      lead.id,
-      verification.website_viability_reason || verification.reason || "AI found a broken or weak website opportunity.",
-      winProbabilityScore,
-    );
-    await createAuditLog("ai_broken_site_opportunity_applied", "lead", lead.id, { verificationId, websiteUrl: verification.found_website_url, viability: verification.website_viability_status });
-  }
 
-  if (parsedAction.data === "mark_manual_review") {
-    await markLeadManualReview(lead.id, verification.reason || "AI marked this lead for manual review.");
-    await createAuditLog("ai_manual_review_applied", "lead", lead.id, { verificationId });
-  }
+    if (parsedAction.data === "mark_broken_site_opportunity") {
+      if (!isWeakWebsiteOpportunity(verification.website_viability_status)) {
+        return { error: "Only broken, parked, or placeholder website findings can be marked as a broken-site opportunity." };
+      }
+      const winProbabilityScore = computeLeadWinProbability(lead, {
+        status: "weak_site_found",
+        confidence: verification.confidence,
+        foundWebsiteUrl: verification.found_website_url,
+      }, verification.website_viability_status);
+      await markLeadBrokenSiteOpportunity(
+        lead.id,
+        verification.website_viability_reason || verification.reason || "AI found a broken or weak website opportunity.",
+        winProbabilityScore,
+      );
+      await createAuditLog("ai_broken_site_opportunity_applied", "lead", lead.id, { verificationId, websiteUrl: verification.found_website_url, viability: verification.website_viability_status });
+    }
 
-  revalidateLeadViews();
-  revalidatePath(`/leads/${lead.id}`);
-  revalidatePath("/statistics");
-  return { success: true };
+    if (parsedAction.data === "mark_manual_review") {
+      await markLeadManualReview(lead.id, verification.reason || "AI marked this lead for manual review.");
+      await createAuditLog("ai_manual_review_applied", "lead", lead.id, { verificationId });
+    }
+
+    revalidateLeadViews();
+    revalidatePath(`/leads/${lead.id}`);
+    revalidatePath("/statistics");
+    return { success: true };
+  });
 }
 
-export async function repairLeadAiWebsiteViabilityAction(leadId: string) {
-  await requirePermission("ai:verify");
-  await ensureDbReady();
-  const lead = await queryLeadById(leadId);
-  if (!lead) return { error: "Lead not found" };
-  const latest = await getLatestAiVerification(leadId);
-  if (!latest) return { error: "No AI verification exists for this lead." };
-  if (!latest.found_website_url) return { error: "Latest AI verification has no website URL to re-check." };
-
-  const result = await repairLeadAiWebsiteViability(lead, latest);
-  revalidateLeadViews();
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/statistics");
-  return result;
-}
-
-export async function repairAiWebsiteViabilityBatchAction(input: { limit?: number } = {}) {
-  await requirePermission("ai:verify");
-  await ensureDbReady();
-  const leads = await getAiWebsiteViabilityRepairLeads(input.limit ?? 50);
-  const results: Array<{ leadId: string; success: boolean; error?: string }> = [];
-
-  for (const lead of leads) {
+export async function repairLeadAiWebsiteViabilityAction(leadId: string, selector: TenantSessionSelector = {}) {
+  return withTenantWideLeadActor(selector, "ai:verify", "lead.ai.viability_repair", "manager-mutation", async (tenantSession) => {
+    const lead = await getTenantOwnedLead(tenantSession, leadId);
+    if (!lead) return { error: "Lead not found" };
     const latest = await getLatestAiVerification(lead.id);
-    if (!latest?.found_website_url) continue;
-    const result = await repairLeadAiWebsiteViability(lead, latest);
-    results.push({
-      leadId: lead.id,
-      success: !("error" in result),
-      error: "error" in result ? result.error : undefined,
-    });
-  }
+    if (!latest) return { error: "No AI verification exists for this lead." };
+    if (!latest.found_website_url) return { error: "Latest AI verification has no website URL to re-check." };
 
-  await createAuditLog("ai_website_viability_repair_batch", "leads", undefined, { processed: results.length });
-  revalidateLeadViews();
-  revalidatePath("/statistics");
-  return {
-    success: true,
-    processed: results.length,
-    repaired: results.filter((row) => row.success).length,
-    errors: results.filter((row) => row.error).length,
-    results,
-  };
+    const result = await repairLeadAiWebsiteViability(lead, latest);
+    revalidateLeadViews();
+    revalidatePath(`/leads/${leadId}`);
+    revalidatePath("/statistics");
+    return result;
+  });
+}
+
+export async function repairAiWebsiteViabilityBatchAction(input: { limit?: number } = {}, selector: TenantSessionSelector = {}) {
+  return withTenantWideLeadActor(selector, "ai:verify", "lead.ai.viability_repair_batch", "manager-mutation", async () => {
+    const leads = await getAiWebsiteViabilityRepairLeads(input.limit ?? 50);
+    const results: Array<{ leadId: string; success: boolean; error?: string }> = [];
+
+    for (const lead of leads) {
+      const latest = await getLatestAiVerification(lead.id);
+      if (!latest?.found_website_url) continue;
+      const result = await repairLeadAiWebsiteViability(lead, latest);
+      results.push({
+        leadId: lead.id,
+        success: !("error" in result),
+        error: "error" in result ? result.error : undefined,
+      });
+    }
+
+    await createAuditLog("ai_website_viability_repair_batch", "leads", undefined, { processed: results.length });
+    revalidateLeadViews();
+    revalidatePath("/statistics");
+    return {
+      success: true,
+      processed: results.length,
+      repaired: results.filter((row) => row.success).length,
+      errors: results.filter((row) => row.error).length,
+      results,
+    };
+  });
 }
 
 const VERIFICATION_KEYS = new Set(["phone_works", "no_real_website", "address_verified", "business_active", "ready_for_outreach"]);
 
-export async function updateLeadVerificationAction(id: string, key: string, value: boolean) {
-  const session = await requirePermission("lead:update");
-  await ensureDbReady();
-  if (!VERIFICATION_KEYS.has(key)) return { error: "Invalid verification key" };
-  const lead = await queryLeadById(id);
-  if (!lead) return { error: "Lead not found" };
-  const ownership = await requireLeadOwnershipForMutation(id, session);
-  if (!ownership.ok) return { error: ownership.error };
-  const verification = { ...lead.verification, [key]: value };
-  await dbUpdateVerification(id, verification);
-  revalidatePath(`/leads/${id}`);
-  return { success: true, verification };
+export async function updateLeadVerificationAction(id: string, key: string, value: boolean, selector: TenantSessionSelector = {}) {
+  return withTenantWideLeadActor(selector, "lead:update", "lead.verification.update", "researcher-mutation", async (tenantSession, session) => {
+    if (!VERIFICATION_KEYS.has(key)) return { error: "Invalid verification key" };
+    const lead = await getTenantOwnedLead(tenantSession, id);
+    if (!lead) return { error: "Lead not found" };
+    const ownership = await requireLeadOwnershipForMutation(id, session, lead);
+    if (!ownership.ok) return { error: ownership.error };
+    const verification = { ...lead.verification, [key]: value };
+    await dbUpdateVerification(id, verification);
+    await createAuditLog("lead_verification_updated", "lead", id, { key });
+    revalidatePath(`/leads/${id}`);
+    return { success: true, verification };
+  });
 }

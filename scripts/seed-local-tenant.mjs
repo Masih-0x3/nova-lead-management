@@ -212,17 +212,47 @@ async function main() {
       ]) {
         await tx.unsafe(`
           INSERT INTO auth.users (
-            id, email, encrypted_password, email_confirmed_at,
+            id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+            confirmation_token, recovery_token, email_change_token_new,
+            email_change_token_current, phone_change_token, reauthentication_token,
+            email_change, phone_change, email_change_confirm_status,
+            is_super_admin, is_sso_user,
             raw_app_meta_data, raw_user_meta_data, created_at, updated_at
-          ) VALUES ($1, $2, public.crypt($3, public.gen_salt('bf')), $4, $5, $6, $7, $7)
+          ) VALUES ($1, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', $2, public.crypt($3, public.gen_salt('bf')), $4,
+            '', '', '', '', '', '', '', '', 0, false, false, $5::jsonb, $6::jsonb, $7, $7)
           ON CONFLICT (id) DO UPDATE SET
+            aud = EXCLUDED.aud,
+            role = EXCLUDED.role,
+            instance_id = EXCLUDED.instance_id,
+            confirmation_token = EXCLUDED.confirmation_token,
+            recovery_token = EXCLUDED.recovery_token,
+            email_change_token_new = EXCLUDED.email_change_token_new,
+            email_change_token_current = EXCLUDED.email_change_token_current,
+            phone_change_token = EXCLUDED.phone_change_token,
+            reauthentication_token = EXCLUDED.reauthentication_token,
+            email_change = EXCLUDED.email_change,
+            phone_change = EXCLUDED.phone_change,
+            email_change_confirm_status = EXCLUDED.email_change_confirm_status,
+            is_super_admin = EXCLUDED.is_super_admin,
+            is_sso_user = EXCLUDED.is_sso_user,
             email = EXCLUDED.email,
             encrypted_password = EXCLUDED.encrypted_password,
             email_confirmed_at = EXCLUDED.email_confirmed_at,
             raw_app_meta_data = EXCLUDED.raw_app_meta_data,
             raw_user_meta_data = EXCLUDED.raw_user_meta_data,
             updated_at = EXCLUDED.updated_at`,
-          [id, email, password, now, JSON.stringify({ provider: "email", providers: ["email"] }), "{}", now]);
+          [id, email, password, now, { provider: "email", providers: ["email"] }, {}, now]);
+        // GoTrue password grant resolves users through auth.identities.
+        await tx.unsafe(`
+          INSERT INTO auth.identities (
+            id, user_id, provider_id, provider, identity_data,
+            last_sign_in_at, created_at, updated_at
+          ) VALUES (extensions.gen_random_uuid(), $1, $2::text, 'email', $3::jsonb, $4, $4, $4)
+          ON CONFLICT (provider_id, provider) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            identity_data = EXCLUDED.identity_data,
+            updated_at = EXCLUDED.updated_at`,
+          [id, email, { sub: id, email, email_verified: true }, now]);
       }
 
       await tx.unsafe(`
@@ -238,7 +268,7 @@ async function main() {
 
       for (const [membershipId, identityId, workspaceId] of [
         [IDS.adminMembershipId, IDS.adminIdentityId, null],
-        [IDS.researcherMembershipId, IDS.researcherIdentityId, IDS.workspaceId],
+        [IDS.researcherMembershipId, IDS.researcherIdentityId, null],
       ]) {
         await tx.unsafe(`
           INSERT INTO public.tenant_memberships (id, tenant_id, auth_identity_id, workspace_id, status)
@@ -254,10 +284,10 @@ async function main() {
         [IDS.adminBindingId, IDS.adminMembershipId, "owner"],
         [IDS.researcherBindingId, IDS.researcherMembershipId, "researcher"],
       ]) {
+        await tx.unsafe("DELETE FROM public.tenant_role_bindings WHERE id = $1", [bindingId]);
         await tx.unsafe(`
-          INSERT INTO public.tenant_role_bindings (id, tenant_id, membership_id, role, valid_from, reason_code)
-          VALUES ($1, $2, $3, $4, now() - interval '1 hour', 'initial_provisioning')
-          ON CONFLICT (id) DO NOTHING`,
+          INSERT INTO public.tenant_role_bindings (id, tenant_id, membership_id, role, created_at, valid_from, reason_code)
+          VALUES ($1, $2, $3, $4, now() - interval '1 hour', now() - interval '1 hour', 'initial_provisioning')`,
         [bindingId, IDS.tenantId, membershipId, role]);
       }
 

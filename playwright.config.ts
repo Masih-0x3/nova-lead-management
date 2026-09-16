@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const includeMutatingProject = process.env.E2E_ALLOW_MUTATIONS === "1";
+const includeAcceptanceProject = process.env.E2E_ACCEPTANCE === "1";
 const storageState = process.env.E2E_STORAGE_STATE?.trim() || undefined;
 
 export default defineConfig({
@@ -14,12 +15,18 @@ export default defineConfig({
     },
     {
       name: "authenticated-read-only",
-      testMatch: /(launch-auth-screenshots|settings-verify|smoke-ui|smoke)\.spec\.ts/,
+      testMatch: /(launch-auth-screenshots|settings-verify|smoke-ui|smoke|smoke-researcher|workflow-surfaces)\.spec\.ts/,
     },
     ...(includeMutatingProject
       ? [{
           name: "mutating",
           testMatch: /(excluded-drag-verify|excluded-to-verified|kanban-exclusion-prompt|lead-workbench-flow|leads-fixes-verify)\.spec\.ts/,
+        }]
+      : []),
+    ...(includeAcceptanceProject
+      ? [{
+          name: "acceptance",
+          testMatch: /acceptance-.*\.spec\.ts/,
         }]
       : []),
   ],

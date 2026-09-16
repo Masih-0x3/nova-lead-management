@@ -48,7 +48,7 @@ export async function login(page: Page): Promise<void> {
   }
 
   await page.goto(`${BASE_URL}/login`, { waitUntil: "networkidle", timeout: 30000 });
-  await expect(page.locator("h1")).toContainText("NoSite Leads");
+  await expect(page.locator("h1")).toContainText("Nova Trade");
   await page.getByLabel("Email").fill(EMAIL);
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
