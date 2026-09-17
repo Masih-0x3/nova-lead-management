@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   release-check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zeus]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -28,7 +28,7 @@ jobs:
 
   postgres-disposable:
     name: Disposable PostgreSQL 16 schema suites
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zeus]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -74,7 +74,7 @@ jobs:
 
   postgres-selfprovisioning-suites:
     name: Self-provisioning disposable PostgreSQL 16 suites (L-03/L-04/L-06/L-08)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zeus]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -106,7 +106,7 @@ jobs:
 
   l02-tenant-ops-postgres:
     name: L-02 tenant cutover/ops runtime-role proof (PostgreSQL 16)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zeus]
     timeout-minutes: 30
     env:
       CI_PG_NAME: nova-ci-l02-${{ github.run_id }}-${{ github.run_attempt }}
@@ -131,7 +131,7 @@ jobs:
 
   document-real-services:
     name: Private Storage and ClamAV integration
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zeus]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -153,7 +153,7 @@ jobs:
   staging-rehearsal:
     name: Isolated staging rehearsal (Supabase + Next production)
     needs: [release-check, postgres-disposable, postgres-selfprovisioning-suites, l02-tenant-ops-postgres, document-real-services]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zeus]
     timeout-minutes: 45
     environment: staging
     steps:
