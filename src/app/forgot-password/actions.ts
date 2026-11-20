@@ -47,7 +47,22 @@ export async function requestPasswordResetAction(formData: FormData) {
   }
 
   const headerStore = await headers();
-  const origin = resolveCanonicalAppUrl(headerStore.get("origin"));
+  let origin: string;
+  try {
+    origin = resolveCanonicalAppUrl(headerStore.get("origin"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logRouteTiming(500, { reason: "missing_app_url", error: message });
+    await recordOperationalEvent({
+      action: "auth_password_reset_request_failed",
+      category: "auth",
+      severity: "error",
+      entityType: "auth",
+      scope: "platform",
+      metadata: { reason: "missing_app_url", error: message },
+    });
+    redirect("/forgot-password?error=missing_origin");
+  }
 
   const redirectTo = buildPasswordRecoveryUrl("/reset-password", origin);
   const supabase = await createSupabaseServerClient();

@@ -26,9 +26,6 @@ vi.mock("@/lib/internal-worker-auth", () => workerAuthMocks);
 vi.mock("@/lib/route-timing", () => ({
   startRouteTiming: routeTimingMocks.startRouteTiming,
 }));
-vi.mock("@/lib/app-url", () => ({
-  CANONICAL_APP_URL: "https://example.com",
-}));
 
 import { GET } from "@/app/api/health/route";
 
@@ -118,5 +115,30 @@ describe("/api/health", () => {
     expect(response.headers.get("Pragma")).toBe("no-cache");
     expect(response.headers.get("Expires")).toBe("0");
     expect(routeTimingMocks.logRouteTiming).toHaveBeenCalledWith(503, { healthStatus: "error" });
+  });
+
+  it("reports ok when NEXT_PUBLIC_APP_URL matches the request origin", async () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://example.com/";
+    const response = await GET(new Request("https://example.com/api/health"));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe("ok");
+  });
+
+  it("degrades when NEXT_PUBLIC_APP_URL differs from the forwarded request origin", async () => {
+    const response = await GET(new Request("http://internal:3000/api/health", {
+      headers: { "x-forwarded-host": "stale.example.com", "x-forwarded-proto": "https" },
+    }));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe("degraded");
+  });
+
+  it("degrades when NEXT_PUBLIC_APP_URL is missing", async () => {
+    process.env.NEXT_PUBLIC_APP_URL = "";
+    const response = await GET(new Request("https://example.com/api/health"));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe("degraded");
   });
 });

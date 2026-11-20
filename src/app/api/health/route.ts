@@ -4,7 +4,6 @@ import { ensureDbReady, getSettings } from "@/lib/db/queries";
 import { applyNoStoreHeaders } from "@/lib/http-cache";
 import { getConfiguredWorkerCronSecrets } from "@/lib/internal-worker-auth";
 import { startRouteTiming } from "@/lib/route-timing";
-import { CANONICAL_APP_URL } from "@/lib/app-url";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +17,7 @@ type HealthCheck = {
   message?: string;
 };
 
-export async function GET() {
+export async function GET(request?: Request) {
   const logRouteTiming = startRouteTiming("/api/health");
   const checks: Record<string, HealthCheck> = {};
 
@@ -27,7 +26,7 @@ export async function GET() {
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   });
 
-  checks.appUrl = checkAppUrlEnv(process.env.NEXT_PUBLIC_APP_URL);
+  checks.appUrl = checkAppUrlEnv(process.env.NEXT_PUBLIC_APP_URL, getRequestOrigin(request));
   checks.databaseUrl = checkRequiredEnv({ DATABASE_URL: process.env.DATABASE_URL });
   checks.supabaseAdmin = checkRequiredEnv({ SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY });
 
@@ -146,13 +145,37 @@ function checkRequiredEnv(env: Record<string, string | undefined>): HealthCheck 
     : { status: "error", message: `Missing required env: ${missing.join(", ")}` };
 }
 
-function checkAppUrlEnv(value: string | undefined): HealthCheck {
-  const configured = value?.trim().replace(/\/+$/, "");
-  if (!configured) {
-    return { status: "degraded", message: `NEXT_PUBLIC_APP_URL is missing; auth emails fall back to ${CANONICAL_APP_URL}.` };
+function getRequestOrigin(request?: Request): string | null {
+  if (!request) return null;
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  if (forwardedHost) {
+    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
+    return `${forwardedProto}://${forwardedHost}`;
   }
-  if (configured !== CANONICAL_APP_URL) {
-    return { status: "degraded", message: `NEXT_PUBLIC_APP_URL is ${configured}; expected ${CANONICAL_APP_URL}.` };
+  try {
+    return new URL(request.url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeOrigin(value: string | undefined): string | null {
+  const trimmed = value?.trim().replace(/\/+$/, "");
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed;
+  }
+}
+
+function checkAppUrlEnv(value: string | undefined, requestOrigin: string | null): HealthCheck {
+  const configured = normalizeOrigin(value);
+  if (!configured) {
+    return { status: "degraded", message: "NEXT_PUBLIC_APP_URL is missing; auth links cannot be built in production." };
+  }
+  if (requestOrigin && configured !== requestOrigin) {
+    return { status: "degraded", message: `NEXT_PUBLIC_APP_URL is ${configured}; this request was served from ${requestOrigin}.` };
   }
   return { status: "ok" };
 }
