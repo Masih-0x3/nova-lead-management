@@ -224,6 +224,13 @@ export async function main(): Promise<void> {
     .run(supportReference, supportIdentityId);
   if (principal.changes === 1) {
     console.log(`[seed] platform_support_principals ${supportReference} -> ${supportIdentityId}`);
+  } else {
+    const existing = await db
+      .prepare("SELECT reference FROM platform_support_principals WHERE auth_identity_id = ?")
+      .get(supportIdentityId) as { reference: string } | undefined;
+    if (existing && existing.reference !== supportReference) {
+      console.warn(`[seed] support identity ${supportIdentityId} is already registered as ${existing.reference}; use that reference or reset the local database to register ${supportReference}.`);
+    }
   }
 
   // The provisioned tenant_policies baseline is restrictive-by-default.
