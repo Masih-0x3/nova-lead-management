@@ -88,6 +88,18 @@ describe("service-backed onboarding page", () => {
     expect(html).toContain('href="/onboarding?step=policy"');
   });
 
+  it("passes a pattern-valid correlation id for a route with query characters", async () => {
+    const { loadSurface } = await import("@/app/(protected)/_lib/surface");
+    await loadSurface({
+      route: "/onboarding?step=policy",
+      permission: "tenant:read",
+      action: "l07:onboarding:policy",
+      load: async () => null,
+    });
+    const correlationId = contextMocks.runWithTenantContext.mock.calls.at(-1)?.[1];
+    expect(correlationId).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/);
+  });
+
   it("renders the pending material-registry seam on the materials step", async () => {
     const html = await render("materials");
     expect(html).toContain("Material registry read seam pending");
