@@ -53,7 +53,7 @@ function docker(args: string[], allowFailure = false): string {
   }
 }
 
-function waitForPostgres(container: string, database: string): void {
+function waitForPostgres(container: string): void {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     if (docker(["exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], true).includes("accepting")) return;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
@@ -410,7 +410,7 @@ describe("G-004A AI tenant scope and worker envelope", () => {
       expect(docker(["ps", "-a", "--filter", `name=^/${container}$`, "--format", "{{.ID}}"], true)).toBe("");
       try {
         docker(["run", "--detach", "--rm", "--name", container, "--publish", "127.0.0.1::5432", "--env", "POSTGRES_PASSWORD=postgres", "--env", `POSTGRES_DB=${database}`, pinnedPostgres16]);
-        waitForPostgres(container, database);
+        waitForPostgres(container);
         port = docker(["port", container, "5432/tcp"]).split(":").at(-1)!;
         const url = `postgres://postgres:postgres@127.0.0.1:${port}/${database}`;
         const parsed = new URL(url);
@@ -815,7 +815,7 @@ describe("G-007P20A tenant researcher actor usage index", () => {
       expect(docker(["ps", "-a", "--filter", `name=^/${container}$`, "--format", "{{.ID}}"], true)).toBe("");
       try {
         docker(["run", "--detach", "--rm", "--name", container, "--publish", "127.0.0.1::5432", "--env", "POSTGRES_PASSWORD=postgres", "--env", `POSTGRES_DB=${database}`, pinnedPostgres16]);
-        waitForPostgres(container, database);
+        waitForPostgres(container);
         const port = docker(["port", container, "5432/tcp"]).split(":").at(-1)!;
         const url = `postgres://postgres:postgres@127.0.0.1:${port}/${database}`;
         const parsed = new URL(url);
