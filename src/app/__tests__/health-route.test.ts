@@ -134,6 +134,13 @@ describe("/api/health", () => {
     expect((await response.json()).status).toBe("degraded");
   });
 
+  it("treats an equivalent origin with default port and uppercase host as ok", async () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://Example.com:443";
+    const response = await GET(new Request("https://example.com/api/health"));
+
+    expect((await response.json()).status).toBe("ok");
+  });
+
   it("degrades when NEXT_PUBLIC_APP_URL includes a path on the request host", async () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://example.com/app";
     const response = await GET(new Request("https://example.com/api/health"));

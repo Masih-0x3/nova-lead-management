@@ -159,12 +159,22 @@ function getRequestOrigin(request?: Request): string | null {
   }
 }
 
+function isSameOrigin(configured: string, requestOrigin: string): boolean {
+  try {
+    const configuredUrl = new URL(configured);
+    if (configuredUrl.pathname !== "/" || configuredUrl.search || configuredUrl.hash) return false;
+    return configuredUrl.origin === new URL(requestOrigin).origin;
+  } catch {
+    return false;
+  }
+}
+
 function checkAppUrlEnv(value: string | undefined, requestOrigin: string | null): HealthCheck {
   const configured = value?.trim().replace(/\/+$/, "");
   if (!configured) {
     return { status: "degraded", message: "NEXT_PUBLIC_APP_URL is missing; auth links cannot be built in production." };
   }
-  if (requestOrigin && configured !== requestOrigin) {
+  if (requestOrigin && !isSameOrigin(configured, requestOrigin)) {
     return { status: "degraded", message: `NEXT_PUBLIC_APP_URL is ${configured}; this request was served from ${requestOrigin}.` };
   }
   return { status: "ok" };
