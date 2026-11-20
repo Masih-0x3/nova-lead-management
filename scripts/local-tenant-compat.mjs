@@ -12,7 +12,7 @@
 //   npm run local:tenancy:compat -- rollback
 //
 // Knobs (env):
-//   LOCAL_COMPAT_DB    fixture path (default nosite-leads-legacy.db)
+//   LOCAL_COMPAT_DB    fixture path (default nova-leads-legacy.db)
 //   LOCAL_COMPAT_IDEM  idempotency key (default local-compat-backfill-v1)
 //
 // The driver is TypeScript under scripts/; this wrapper bundles it with the

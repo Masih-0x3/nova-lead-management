@@ -16,7 +16,7 @@ import { getTenantSession } from "@/lib/auth";
 import { loadSurface, SurfaceNotice } from "../_lib/surface";
 import { ReportingWorkspace } from "./workspace";
 
-export const metadata: Metadata = { title: "Reporting | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Reporting | Nova Lead Management" };
 
 const DESCRIPTION = "Outcome capture, attribution reporting, and controlled learning proposals.";
 

@@ -92,7 +92,7 @@ function insertLead(id = "lead-1", tenantId = TENANT_A) {
 }
 
 beforeEach(() => {
-  vi.stubEnv("NOSITE_SESSION_SECRET", "test-secret-for-encrypting-openai-keys");
+  vi.stubEnv("NOVA_SESSION_SECRET", "test-secret-for-encrypting-openai-keys");
   vi.stubEnv("OPENAI_API_KEY", "");
   vi.stubEnv("GOOGLE_PLACES_API_KEY", "");
   vi.stubEnv("NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY", "");

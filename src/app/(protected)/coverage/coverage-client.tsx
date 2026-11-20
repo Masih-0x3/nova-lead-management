@@ -227,7 +227,7 @@ export function CoverageClient({
   const effectiveRunId = run?.id ?? selectedRunId ?? null;
 
   useEffect(() => {
-    document.title = "Coverage | Nova Trade Lead Management";
+    document.title = "Coverage | Nova Lead Management";
   }, []);
 
   const setPanelWarning = useCallback((label: string, loadError?: CoverageLoadError) => {

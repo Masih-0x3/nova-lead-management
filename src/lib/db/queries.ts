@@ -26,7 +26,6 @@ import {
   type TenantContext,
 } from "@/lib/tenancy/context";
 import { getWorkerTenantContext } from "@/lib/tenancy/worker-context";
-import { resolveCanonicalAppUrl } from "@/lib/app-url";
 import {
   SCHEDULER_WORKER_METADATA,
   getSchedulerWorkerMetadata,
@@ -1578,11 +1577,11 @@ export async function ensureDbReady(): Promise<void>{
 }
 
 function shouldRunRuntimePostgresRepairs(): boolean {
-  return Boolean(process.env.DATABASE_URL?.trim()) && process.env.NOSITE_RUNTIME_POSTGRES_REPAIR === "1";
+  return Boolean(process.env.DATABASE_URL?.trim()) && (process.env.NOVA_RUNTIME_POSTGRES_REPAIR ?? process.env.NOSITE_RUNTIME_POSTGRES_REPAIR) === "1";
 }
 
 function shouldSeedZipCodesAtRuntime(): boolean {
-  return !process.env.DATABASE_URL?.trim() || process.env.NOSITE_RUNTIME_ZIP_SEED === "1";
+  return !process.env.DATABASE_URL?.trim() || (process.env.NOVA_RUNTIME_ZIP_SEED ?? process.env.NOSITE_RUNTIME_ZIP_SEED) === "1";
 }
 
 export function shouldRunRuntimeGeographyBackfillForEnv(databaseUrl?: string, runtimeBackfillFlag?: string): boolean {
@@ -1592,7 +1591,7 @@ export function shouldRunRuntimeGeographyBackfillForEnv(databaseUrl?: string, ru
 function shouldRunRuntimeGeographyBackfill(): boolean {
   return shouldRunRuntimeGeographyBackfillForEnv(
     process.env.DATABASE_URL,
-    process.env.NOSITE_RUNTIME_GEOGRAPHY_BACKFILL,
+    process.env.NOVA_RUNTIME_GEOGRAPHY_BACKFILL ?? process.env.NOSITE_RUNTIME_GEOGRAPHY_BACKFILL,
   );
 }
 
@@ -2344,14 +2343,11 @@ export function buildSchedulerHealthFallback(error: string): SchedulerHealth {
 
 function buildAuthRecoveryDiagnostics(): AuthRecoveryDiagnostics {
   const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ?? "";
-  const appUrl = resolveCanonicalAppUrl(null);
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
   const warnings: string[] = [];
 
   if (!configuredAppUrl) {
-    warnings.push("NEXT_PUBLIC_APP_URL is missing. Auth emails will fall back to https://www.nosite.xyz.");
-  } else if (configuredAppUrl !== appUrl) {
-    warnings.push(`NEXT_PUBLIC_APP_URL is ${configuredAppUrl}; auth email fallback is ${appUrl}.`);
+    warnings.push("NEXT_PUBLIC_APP_URL is missing. Auth emails cannot be sent in production until it is set.");
   }
   if (!supabaseUrl) {
     warnings.push("NEXT_PUBLIC_SUPABASE_URL is missing. Supabase Auth cannot validate sessions.");
@@ -2360,7 +2356,7 @@ function buildAuthRecoveryDiagnostics(): AuthRecoveryDiagnostics {
   return {
     appUrlConfigured: Boolean(configuredAppUrl),
     supabaseUrlConfigured: Boolean(supabaseUrl),
-    callbackUrl: `${appUrl}/auth/callback`,
+    callbackUrl: configuredAppUrl ? `${configuredAppUrl}/auth/callback` : null,
     warnings,
   };
 }

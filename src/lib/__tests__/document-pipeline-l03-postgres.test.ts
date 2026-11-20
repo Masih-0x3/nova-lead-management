@@ -404,7 +404,7 @@ describe.skipIf(!RUN)("L-03 document pipeline PostgreSQL rehearsal", () => {
         if (citations.length === 0) return [];
         const proposals: KnowledgeClaimProposal[] = [{
           claimClass: "customer_provided_strategic_fact",
-          subject: "Nova Trade",
+          subject: "Nova Demo",
           predicate: "employs",
           value: "Ada Lovelace",
           unit: null,

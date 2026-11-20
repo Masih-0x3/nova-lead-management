@@ -20,7 +20,7 @@ export function acceptanceStatePath(env = process.env) {
 /** @param {E2EEnvironment} [env] */
 export function hasE2EAuth(env = process.env) {
   const storageState = env.E2E_STORAGE_STATE?.trim() ?? "";
-  const email = (env.E2E_SUPABASE_EMAIL ?? env.NOSITE_BOOTSTRAP_ADMIN_EMAIL ?? "").trim();
+  const email = (env.E2E_SUPABASE_EMAIL ?? env.NOVA_BOOTSTRAP_ADMIN_EMAIL ?? env.NOSITE_BOOTSTRAP_ADMIN_EMAIL ?? "").trim();
   const password = env.E2E_SUPABASE_PASSWORD?.trim() ?? "";
   return Boolean(storageState || (email && password));
 }

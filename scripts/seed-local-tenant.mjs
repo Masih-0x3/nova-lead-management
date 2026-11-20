@@ -168,8 +168,8 @@ async function main() {
 
   const tenantSlug = (env.LOCAL_TENANT_SLUG ?? "local-demo").trim().toLowerCase();
   const tenantName = (env.LOCAL_TENANT_NAME ?? "Local Demo Tenant").trim();
-  const adminEmail = (env.LOCAL_ADMIN_EMAIL ?? "admin@local.nosite.test").trim().toLowerCase();
-  const researcherEmail = (env.LOCAL_RESEARCHER_EMAIL ?? "researcher@local.nosite.test").trim().toLowerCase();
+  const adminEmail = (env.LOCAL_ADMIN_EMAIL ?? "admin@nova.local").trim().toLowerCase();
+  const researcherEmail = (env.LOCAL_RESEARCHER_EMAIL ?? "researcher@nova.local").trim().toLowerCase();
 
   const generated = [];
   const adminPassword = optionalSecret("LOCAL_ADMIN_PASSWORD", generated);

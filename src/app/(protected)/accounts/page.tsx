@@ -26,7 +26,7 @@ import { getTenantSession } from "@/lib/auth";
 import { loadSurface, SurfaceNotice } from "../_lib/surface";
 import { AccountsWorkspace } from "./workspace";
 
-export const metadata: Metadata = { title: "Accounts | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Accounts | Nova Lead Management" };
 
 const DESCRIPTION = "Canonical account portfolio, resolution states, and merge history.";
 

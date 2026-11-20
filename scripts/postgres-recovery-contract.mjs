@@ -224,7 +224,7 @@ export const PG_RECOVERY_BOUNDARIES = Object.freeze([
   }),
   Object.freeze({
     scope: "environment",
-    reason: "Environment secrets (NOSITE_ENCRYPTION_SECRET, JWT signing keys, WORKER_CRON_SECRET, provider keys) are deploy-time configuration, never archived.",
+    reason: "Environment secrets (NOVA_ENCRYPTION_SECRET, JWT signing keys, WORKER_CRON_SECRET, provider keys) are deploy-time configuration, never archived.",
   }),
 ]);
 

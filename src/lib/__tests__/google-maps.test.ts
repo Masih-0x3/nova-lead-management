@@ -10,12 +10,12 @@ describe("google maps browser loader config", () => {
   });
 
   it("builds a Maps JS URL with only the marker library and without paid Places, Routes, or Geocoding libraries", () => {
-    const url = new URL(buildGoogleMapsScriptUrl("AIza-browser-key", "__nositeGoogleMapsReady"));
+    const url = new URL(buildGoogleMapsScriptUrl("AIza-browser-key", "__novaGoogleMapsReady"));
 
     expect(url.origin).toBe("https://maps.googleapis.com");
     expect(url.pathname).toBe("/maps/api/js");
     expect(url.searchParams.get("key")).toBe("AIza-browser-key");
-    expect(url.searchParams.get("callback")).toBe("__nositeGoogleMapsReady");
+    expect(url.searchParams.get("callback")).toBe("__novaGoogleMapsReady");
     expect(url.searchParams.get("loading")).toBe("async");
     expect(url.searchParams.get("auth_referrer_policy")).toBe("origin");
     expect(url.searchParams.get("libraries")).toBe("marker");

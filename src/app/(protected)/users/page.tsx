@@ -16,7 +16,7 @@ import { createPostgresTenantMembershipAdministrationService } from "@/lib/tenan
 import type { MembershipHistoryView, MembershipView } from "@/lib/tenancy/memberships";
 import type { MembershipStatus } from "@/lib/tenancy/types";
 
-export const metadata: Metadata = { title: "Users | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Users | Nova Lead Management" };
 
 type Directory = Readonly<{
   memberships: readonly MembershipView[];
