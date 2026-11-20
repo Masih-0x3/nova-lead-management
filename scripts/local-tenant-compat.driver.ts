@@ -39,7 +39,8 @@ import {
   type SqliteBackfillDb,
 } from "@/lib/tenancy/compatibility-backfill";
 
-const DB_PATH = process.env.LOCAL_COMPAT_DB ?? "nova-leads-legacy.db";
+const DB_PATH = process.env.LOCAL_COMPAT_DB
+  ?? (!existsSync("nova-leads-legacy.db") && existsSync("nosite-leads-legacy.db") ? "nosite-leads-legacy.db" : "nova-leads-legacy.db");
 const SNAPSHOT_PATH = `${DB_PATH}.pre-backfill`;
 const IDEMPOTENCY_KEY = process.env.LOCAL_COMPAT_IDEM ?? "local-compat-backfill-v1";
 
