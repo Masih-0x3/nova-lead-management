@@ -145,7 +145,7 @@ jobs:
       - run: node scripts/l03-real-services.mjs --receipt service-receipt.json
       - name: Upload sanitized service receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: service-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: service-receipt.json
@@ -180,7 +180,7 @@ jobs:
       # never part of the artifact.
       - name: Upload sanitized staging receipt
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: staging-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: staging-artifacts/*/receipt.json
