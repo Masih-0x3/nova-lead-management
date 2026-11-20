@@ -173,7 +173,7 @@ Vitest failed with exit code 1.
 
 ## Remediation receipt: Q-001-R3
 
-- Updated only the three obsolete public-page heading expectations in `e2e/public-read-only.spec.ts` to the exact Nova Trade privacy, terms, and login headings.
+- Updated only the three obsolete public-page heading expectations in `e2e/public-read-only.spec.ts` to the exact Nova Lead Management privacy, terms, and login headings.
 - The worker ran the public read-only suite against a disposable local app: all five tests passed.
 - Parent diff review confirmed that HTTP status, responsive viewport, navigation visibility, runtime-error collection, credential non-submission, and horizontal-overflow assertions were unchanged.
 - Parent cleanup verification found no related process/listener, no transient test result directory, and no temporary server log.

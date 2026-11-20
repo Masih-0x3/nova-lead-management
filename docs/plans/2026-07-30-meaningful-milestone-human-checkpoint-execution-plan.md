@@ -1,4 +1,4 @@
-# Nova Trade Meaningful-Milestone and Human-Checkpoint Execution Plan
+# Nova Lead Management Meaningful-Milestone and Human-Checkpoint Execution Plan
 
 ## Document control
 
@@ -214,7 +214,7 @@ commits are not counted as additional completed original cards.
 ## Meaningful Milestone 1: two-tenant legacy product
 
 The nearest product outcome is **G-025, the Phase 2 generalized-boundary
-acceptance gate**. It proves that the existing Nova Trade workflow works for two
+acceptance gate**. It proves that the existing Nova Lead Management workflow works for two
 isolated tenants across storage, queries, actions, routes, workers, caches,
 usage, and compatibility behavior.
 
@@ -242,7 +242,7 @@ extra checkpoint at any time.
 |---|---|---|---|
 | CP-0 | Repair-4 clean source commit; not merged | Safe provenance repair ready for inspection | Inspect five-path diff and focused results; confirm no public authority or data loss. |
 | CP-1 | G-006 | Fresh and upgraded SQLite compatibility is complete | Exercise fresh and upgraded fixtures; replace access/crawl state; restart; prove cross-scope rejection and rollback. |
-| CP-2 | G-025 | Existing Nova Trade product works for two isolated tenants | Log in as two tenant users; create/read/update equivalent records; run crawl/worker paths; prove no cross-tenant visibility or mutation. |
+| CP-2 | G-025 | Existing Nova Lead Management product works for two isolated tenants | Log in as two tenant users; create/read/update equivalent records; run crawl/worker paths; prove no cross-tenant visibility or mutation. |
 | CP-3 | I-030 | Documents become reviewable evidence and claims | Upload approved PDF, DOCX, CSV, text, and image fixtures; verify extraction, citations, rejection limits, dedupe, and tenant isolation. |
 | CP-4 | A-026 | Adaptive business understanding is usable | Generate understanding from evidence, inspect uncertainty, answer adaptive questions, reject unsupported claims, and replay deterministically. |
 | CP-5 | P-020 | Versioned ICP and lead-play workflow is usable | Draft, review, approve, supersede, and replay an ICP/play; prove citations, version history, and tenant isolation. |

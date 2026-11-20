@@ -1,4 +1,4 @@
-# Nova Trade Tenant and Workspace Contract
+# Nova Lead Management Tenant and Workspace Contract
 
 **Status:** Accepted D-001 architecture contract — parent-verified for local implementation
 **Date:** 2026-07-27
@@ -8,7 +8,7 @@
 
 ## 1. Decision
 
-Nova Trade models a **tenant** as one client organization. A tenant owns its users, business materials, knowledge, policies, usage, research, accounts, contacts, decisions, outcomes, and audit history.
+Nova Lead Management models a **tenant** as one client organization. A tenant owns its users, business materials, knowledge, policies, usage, research, accounts, contacts, decisions, outcomes, and audit history.
 
 A **workspace** is an optional subdivision inside exactly one tenant. It may represent a brand, region, team, or business unit. A workspace is never an organization, never an authorization boundary above the tenant, and never transferable to another tenant. A tenant may operate without any workspace.
 
@@ -24,7 +24,7 @@ Every resource instance has exactly one scope class:
 
 | Scope class | Meaning | Examples |
 |---|---|---|
-| `platform-global` | Owned by Nova Trade as product infrastructure or non-tenant reference data. It contains no tenant-private content and cannot be used as an implicit authorization grant. | Role definitions, connector type definitions, supported file-type policy, geography reference data, platform health. |
+| `platform-global` | Owned by Nova Lead Management as product infrastructure or non-tenant reference data. It contains no tenant-private content and cannot be used as an implicit authorization grant. | Role definitions, connector type definitions, supported file-type policy, geography reference data, platform health. |
 | `tenant-wide` | Belongs to one tenant and is visible only to authorized members of that tenant, regardless of the selected workspace. `workspace_id` is absent or explicitly null, except where a tenant-wide policy relation uses it only as a target restriction. | Canonical accounts, contacts, source evidence, documents, tenant policy, memberships, customer lists, suppressions. |
 | `workspace-optional` | Belongs to one tenant and may either be tenant-wide or attached to exactly one workspace. The creator or owning policy must record which scope was chosen; it cannot silently change scope. | ICPs, lead plays, play versions, discovery runs, qualification assessments, outreach drafts, reports, agent runs. |
 | `workspace-required` | The relationship is meaningful only within one workspace and MUST carry one workspace belonging to the same tenant. At launch, this class applies to workspace membership/assignment rows and to an instance explicitly created as workspace-local; no canonical knowledge or account record is intrinsically workspace-required. | A user-to-workspace membership, a workspace-local play execution, a workspace-local approval task. |
@@ -134,7 +134,7 @@ The current repository has 23 application tables listed in `docs/DATA_RECOVERY.m
 | `demos` | `workspace-optional` | Published demo is tenant-owned through the compatibility lead/play; its public URL is not a data-sharing grant. | Draft/published/unpublished/revoked. Revoke before tenant/workspace archive. Delete or tombstone on tenant deletion; never attach a slug or demo to another tenant. |
 | `place_cache` | `tenant-wide` | Legacy raw provider response cache must be partitioned by tenant, connector policy, query/source context, or replaced by scoped source observations. It cannot become a global private-data cache. | Expire by source retention/TTL; purge on tenant deletion. Cache hits must recheck tenant and policy scope. No transfer or cross-tenant reuse of private observations. |
 | `places_master` | `tenant-wide` | Current provider-centric master record is a compatibility account projection, not a universal global account registry. It maps into the tenant's canonical account and source-observation model. | Recomputed from observations; archive when no longer active, retain provenance. Merge is reversible and tenant-local. No cross-tenant canonical merge. |
-| `place_observations` | `tenant-wide` | Immutable source observations linked to a tenant-scoped run/unit/account. A Google `place_id` is a source identity, not a global Nova Trade owner identity. | Append-only/versioned and retained by source policy. Delete on tenant deletion; preserve only allowed redacted audit metadata. Never transfer observations between tenants. |
+| `place_observations` | `tenant-wide` | Immutable source observations linked to a tenant-scoped run/unit/account. A Google `place_id` is a source identity, not a global Nova Lead Management owner identity. | Append-only/versioned and retained by source policy. Delete on tenant deletion; preserve only allowed redacted audit metadata. Never transfer observations between tenants. |
 | `api_usage_events` | `tenant-wide` | The migrated usage event is the accounting record for tenant work and is attributed to tenant, workspace, run, connector, and actor/job where applicable. Platform-only health metrics are a separate `platform-global` operational resource, not an unscoped row in this table. | Append-only accounting; retention may aggregate after the raw period. Never merge tenant usage into another tenant's budget or export. |
 | `ai_lead_verifications` | `workspace-optional` | Legacy verification becomes an evidence-backed agent artifact through the tenant lead and applicable play/run. | Queued/running/complete/error with immutable input/output provenance. Supersede rather than overwrite; delete tenant content under policy. No model-context or artifact transfer. |
 | `ai_usage_events` | `tenant-wide` | AI cost and invocation metadata for tenant work inherits tenant scope, with sensitive prompt/output content separated and redacted. Platform-only model health metrics are a separate platform resource. | Append-only cost/audit history; aggregate or delete content by retention policy. Never use one tenant's usage or context for another. |

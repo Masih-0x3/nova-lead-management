@@ -1,4 +1,4 @@
-# Nova Trade Outreach Launch Boundary and Claim Policy (D-013)
+# Nova Lead Management Outreach Launch Boundary and Claim Policy (D-013)
 
 **Decision:** D-013 - Approve the outreach launch boundary and claim policy
 **Status:** Parent-conductor accepted as the local implementation contract; external sending and production provider activation remain disabled and require separate governance approval.
@@ -9,7 +9,7 @@ This is a product, security, privacy, and implementation contract. It does not c
 
 ## 1. Decision summary
 
-Nova Trade launch outreach is limited to:
+Nova Lead Management launch outreach is limited to:
 
 1. Preparing a tenant-scoped internal draft from approved, cited business and account evidence.
 2. Human review of the exact draft version, recipient snapshot, channel, claims, citations, and policy evaluation.
@@ -73,7 +73,7 @@ The future system introduces tenant-scoped, versioned concepts for:
 | Policy evaluation | D-002/D-008/D-012 results, rule IDs, effective policy versions, inputs, and hashes | Evaluation is reproducible and replaced by a new evaluation, never edited in place. |
 | Review decision | Human review decision, role, reason, exact object/version hashes, and conflicts | Every decision is an immutable event. |
 | Approval | Explicit authorization of the exact draft, recipient, channel, policy, and evidence versions | Approval is immutable; a changed input makes it stale rather than silently updating it. |
-| Handoff attempt/event | One requested copy or controlled-export attempt against an approved package/version, with request, policy result, release/artifact result, actor, time, and manifest hash | Immutable and append-only; records only what Nova Trade observed. A new attempt gets a new ID, even for the same approved package. |
+| Handoff attempt/event | One requested copy or controlled-export attempt against an approved package/version, with request, policy result, release/artifact result, actor, time, and manifest hash | Immutable and append-only; records only what Nova Lead Management observed. A new attempt gets a new ID, even for the same approved package. |
 | Manual outcome | A human- or approved-import-recorded observation such as `sent_manually`, bounced, replied, or meeting | Separate append-only record with occurrence/recording provenance; never fabricated from a handoff attempt. |
 
 ## 4. Absolute launch no-send boundary
@@ -191,7 +191,7 @@ Draft package/version lifecycle state is one of:
 
 Policy evaluation is separate and uses `allowed`, `blocked`, `requires_review`, `stale`, `conflicted`, or `unresolvable`. A package lifecycle state alone never overrides a blocked policy evaluation.
 
-Each copy/export request creates a separate immutable `handoff_attempt` and append-only `handoff_event`. A handoff attempt has its own state: `requested`, `allowed`, `blocked`, `released`, or `artifact_created`. `released` means Nova Trade released the approved payload to the authorized client response; `artifact_created` means Nova Trade created the controlled export artifact. Neither means the browser clipboard changed or an external recipient used the content. An operator may separately record a `copied` manual outcome if they attest to that local observation. Manual outcomes are separate append-only records and never change package lifecycle state.
+Each copy/export request creates a separate immutable `handoff_attempt` and append-only `handoff_event`. A handoff attempt has its own state: `requested`, `allowed`, `blocked`, `released`, or `artifact_created`. `released` means Nova Lead Management released the approved payload to the authorized client response; `artifact_created` means Nova Lead Management created the controlled export artifact. Neither means the browser clipboard changed or an external recipient used the content. An operator may separately record a `copied` manual outcome if they attest to that local observation. Manual outcomes are separate append-only records and never change package lifecycle state.
 
 ### 7.2 Allowed transitions
 
@@ -216,7 +216,7 @@ Handoff-attempt transitions are independent of package lifecycle:
 | none | Human `member` with `outreach:copy_export` submits an idempotent copy/export request naming an approved package/version | `requested` | Eligible human `member` |
 | `requested` | Transactional scope, permission, evidence, citation, D-012, schedule, redaction, and hash checks pass | `allowed` | `system` policy evaluator |
 | `requested` | Any required check fails | `blocked` | `system` policy evaluator |
-| `allowed` | Copy response payload is released by Nova Trade to the authorized client request | `released` | `system` server action/service |
+| `allowed` | Copy response payload is released by Nova Lead Management to the authorized client request | `released` | `system` server action/service |
 | `allowed` | Controlled export artifact is created and access is returned | `artifact_created` | `system` export service |
 | `released` or `artifact_created` | Optional operator reports a local copy/use observation | No handoff-state change; create separate manual outcome | Human `member` |
 
@@ -233,7 +233,7 @@ No transition exists from any package or handoff state to `sent`, `delivered`, `
 - Cancellation does not delete prior versions, reviews, approvals, or audit events.
 - An approved package is not an eternal capability token. Every handoff attempt re-reads and re-evaluates the exact package, snapshots, policy, suppression epoch, schedule, and actor permission transactionally.
 - An allowed handoff attempt does not consume, mutate, or advance the approved package lifecycle. Multiple bounded attempts may be made while the package remains approved and all gates continue to pass; each attempt has a new immutable ID and idempotency key.
-- Copy/export is transactional: re-read, re-evaluate, authorize, create the attempt/event or artifact, and return only what Nova Trade observed in one server-side decision boundary.
+- Copy/export is transactional: re-read, re-evaluate, authorize, create the attempt/event or artifact, and return only what Nova Lead Management observed in one server-side decision boundary.
 
 ## 8. D-012 recipient and contact-use gate
 
@@ -362,7 +362,7 @@ Blocked example:
 
 ### 11.1 Truthful identity
 
-The package must contain a versioned sender identity snapshot: tenant display name, truthful operator identity or approved business mailbox label, reply/response identity if one is shown, and policy version. It must not imply Nova Trade is the client, imply a relationship that does not exist, or impersonate a person, brand, distributor, regulator, or customer.
+The package must contain a versioned sender identity snapshot: tenant display name, truthful operator identity or approved business mailbox label, reply/response identity if one is shown, and policy version. It must not imply Nova Lead Management is the client, imply a relationship that does not exist, or impersonate a person, brand, distributor, regulator, or customer.
 
 The future system must not invent sender addresses, domains, phone numbers, signatures, or legal entity names. Missing identity data blocks draft approval or handoff.
 
@@ -447,7 +447,7 @@ The default quiet window is 21:00-08:00 in the recipient's local timezone. The d
 6. When allowed, release the exact recipient-facing subject/body and authorized internal manifest in the server response, then record `OUTREACH_HANDOFF_PAYLOAD_RELEASED` with actor, time, exact IDs/hashes, and observed result.
 7. Return only the approved recipient-facing subject/body and the authorized internal manifest. The package remains `approved`; the handoff attempt is the record that advances to `released`.
 
-The client may attempt to write the released payload to a local clipboard after the server response. Nova Trade cannot prove browser clipboard success. An authorized operator may separately record a manual `copied` observation with truthful provenance. Neither the release event nor that optional observation is a send, delivery, or recipient-use event.
+The client may attempt to write the released payload to a local clipboard after the server response. Nova Lead Management cannot prove browser clipboard success. An authorized operator may separately record a manual `copied` observation with truthful provenance. Neither the release event nor that optional observation is a send, delivery, or recipient-use event.
 
 ### 14.2 Controlled export
 
@@ -465,7 +465,7 @@ Minimum taxonomy:
 |---|---|---|
 | `copied` | Operator reports they copied the released payload locally | Link to the handoff attempt, actor, observation time, and truthful local-observation note; no external action implied |
 | `exported` | Operator reports they used or transferred the created artifact locally | Link to the handoff attempt, actor, observation time, artifact/manifest reference, and truthful note; no recipient use implied |
-| `sent_manually` | Operator reports they manually sent or delivered the content outside Nova Trade | Actor, occurrence time, channel, exact draft version, recipient snapshot, and truthful note; no provider confirmation |
+| `sent_manually` | Operator reports they manually sent or delivered the content outside Nova Lead Management | Actor, occurrence time, channel, exact draft version, recipient snapshot, and truthful note; no provider confirmation |
 | `delivery_unknown` | Operator attempted an action but cannot establish delivery | Actor, occurrence time, channel, and uncertainty reason |
 | `bounced` | Operator or approved source reports a classified `hard_bounce` or `soft_bounce` | Source, observed time, channel, recipient point, exact bounce classification, and D-012 protective suppression event |
 | `unknown_bounce` | A bounce-like signal exists but cannot be classified as hard or soft | Outcome classification maps to D-012 effective `SuppressionDisposition=unknown` with stable reason `bounce_unclassified`; create a scoped D-012 suppression event with that effective disposition and never clear eligibility |
@@ -680,7 +680,7 @@ D-013 is accepted only when the parent conductor verifies all of the following:
 3. Every allowed state transition and every block condition is deterministic, testable, version/hash bound, idempotent, and concurrency-safe.
 4. D-002 role permissions, separation of duty, and the bounded one-person exception are applied without granting agents or workers human authority.
 5. D-008 evidence/citation gates and D-012 contact/suppression/source/jurisdiction/channel/schedule gates are explicit and ordered.
-6. Each copy/export creates its own idempotent handoff attempt; only payload release or artifact creation is attested by Nova Trade, the approved package remains unchanged, and no event can be interpreted as sent or delivered.
+6. Each copy/export creates its own idempotent handoff attempt; only payload release or artifact creation is attested by Nova Lead Management, the approved package remains unchanged, and no event can be interpreted as sent or delivered.
 7. Claims, sender identity, opt-out language, citations, redaction, frequency, and quiet-hour requirements are visible in the contract.
 8. Manual outcome taxonomy distinguishes copied/exported from operator-reported sent, delivery unknown, classified/unknown bounce, replied, meeting, won, lost, and protective outcomes.
 9. Specialty-chemicals and non-industrial examples include both allowed and blocked synthetic drafts without real recipients.

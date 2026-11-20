@@ -1,27 +1,27 @@
-# Nova Trade Multi-Tenant Lead Intelligence and Outreach Platform
+# Nova Lead Management Multi-Tenant Lead Intelligence and Outreach Platform
 
 ## Product Requirements Document
 
 **Status:** Proposed product evolution
 **Date:** 2026-07-27
-**Owner:** Nova Trade
+**Owner:** Nova Lead Management
 **Scope:** Product and system behavior; documentation only
 
 ## 1. Executive summary
 
-Nova Trade should evolve from an invite-only, local-business website-lead tool into a multi-tenant, agent-driven B2B lead-intelligence and outreach platform. Each client should be able to provide the materials that make its business understandable—product PDFs, data sheets, catalogs, websites, notes, customer lists, market descriptions, and other authorized sources. Nova Trade agents should turn that evidence into a working business model, expose uncertainty, ask adaptive high-value questions, and then find and qualify companies using search logic specific to that client.
+Nova Lead Management should evolve from an invite-only, local-business website-lead tool into a multi-tenant, agent-driven B2B lead-intelligence and outreach platform. Each client should be able to provide the materials that make its business understandable—product PDFs, data sheets, catalogs, websites, notes, customer lists, market descriptions, and other authorized sources. Nova Lead Management agents should turn that evidence into a working business model, expose uncertainty, ask adaptive high-value questions, and then find and qualify companies using search logic specific to that client.
 
 The platform is not a fixed questionnaire, a generic lead list, or an autonomous spam sender. It is a human-supervised research and revenue workflow. It should produce an evidence-backed ideal-customer profile (ICP), multiple reusable lead plays, candidate accounts, buying-center hypotheses, relevant contacts, explainable scores, recommended next actions, and human-reviewable outreach drafts. Outcomes should feed back into the client’s play definitions, questions, scoring, and source strategy without silently changing the client’s operating rules.
 
 The industrial specialty-chemicals example makes the target product concrete: a client may sell metalworking-fluid components or packages and epoxy resins. Useful target segments may include fluid formulators, coatings makers, flooring and civil-engineering suppliers, adhesives and composites manufacturers, pipe manufacturers, and distributors. The platform must support this example without making chemicals, manufacturing, or any one geography a product limitation.
 
-The recommendation is to evolve the existing Nova Trade foundation—Next.js App Router, Supabase/Postgres, local SQLite development fallback, server actions, worker leasing, Google Places API integration, explainable scoring, AI verification/artifacts, role checks, audit logging, budgets, quality workbench, and copy-only outreach—while replacing or generalizing assumptions that currently bind discovery to local websites, Colorado zip coverage, `place_id`-centric leads, and a single internal account model.
+The recommendation is to evolve the existing Nova Lead Management foundation—Next.js App Router, Supabase/Postgres, local SQLite development fallback, server actions, worker leasing, Google Places API integration, explainable scoring, AI verification/artifacts, role checks, audit logging, budgets, quality workbench, and copy-only outreach—while replacing or generalizing assumptions that currently bind discovery to local websites, Colorado zip coverage, `place_id`-centric leads, and a single internal account model.
 
 ## 2. Product vision and principles
 
 ### Vision
 
-For every client business, Nova Trade becomes a trusted research teammate that understands what the client sells, who buys it, why they buy, and how to reach the right people—while showing the evidence and leaving consequential decisions with humans.
+For every client business, Nova Lead Management becomes a trusted research teammate that understands what the client sells, who buys it, why they buy, and how to reach the right people—while showing the evidence and leaving consequential decisions with humans.
 
 ### Product principles
 
@@ -34,7 +34,7 @@ For every client business, Nova Trade becomes a trusted research teammate that u
 7. **Composable plays.** A client may run different lead plays at the same time, each with its own ICP slice, search logic, qualification rubric, buying-center strategy, outreach motion, and success definition.
 8. **Learning with provenance.** Feedback can improve recommendations, but learned changes are proposed, versioned, reviewable, and reversible.
 9. **Operational resilience.** Long-running ingestion, research, enrichment, scoring, and reporting are resumable, idempotent, observable, budgeted, and safe to retry.
-10. **Generalize the foundation.** Preserve proven Nova Trade primitives where they fit; remove local-website assumptions from contracts rather than layering exceptions on top.
+10. **Generalize the foundation.** Preserve proven Nova Lead Management primitives where they fit; remove local-website assumptions from contracts rather than layering exceptions on top.
 
 ## 3. Personas and actors
 
@@ -45,7 +45,7 @@ For every client business, Nova Trade becomes a trusted research teammate that u
 | Sales or outreach operator | Convert approved research into conversations | Buying-center context, safe drafts, contact state, reminders, outcome capture | Send only where policy allows |
 | Technical/domain reviewer | Validate technical fit and claims | Product facts, application context, evidence, uncertainty flags | Approve or correct domain assertions |
 | Tenant administrator | Govern people, connectors, retention, and policies | RBAC, billing/usage view, audit, data export/delete, integrations | Tenant configuration and membership |
-| Nova Trade operator / support admin | Operate platform and assist clients | Health, queues, connector controls, support access with justification | Platform operations; no default content access |
+| Nova Lead Management operator / support admin | Operate platform and assist clients | Health, queues, connector controls, support access with justification | Platform operations; no default content access |
 | Platform service/agent | Ingest, reason, search, qualify, draft, and learn | Scoped tools, typed outputs, budgets, traceability | No independent send authority unless explicitly enabled later |
 
 ## 4. Terminology
@@ -100,7 +100,7 @@ The active repository is the source of truth for the current product. The follow
 
 Businesses with complex or specialized offerings often cannot describe their best prospects in a single static form. Product value may depend on formulation, process, certification, geography, channel, plant capability, regulatory context, replacement cycle, or a specific buying committee. A generic search produces noisy accounts; a generic score hides why an account matters; a generic email risks unsupported claims and poor targeting.
 
-The current Nova Trade foundation solves a narrower problem well: discover local businesses with weak or missing websites, enrich them through Google Places, score them, and support manual website-sales outreach. The next product must preserve its operational discipline while changing the unit of understanding from “a local business and its website” to “a tenant’s business, a play, an account, a buying center, and evidence-backed next action.”
+The current Nova Lead Management foundation solves a narrower problem well: discover local businesses with weak or missing websites, enrich them through Google Places, score them, and support manual website-sales outreach. The next product must preserve its operational discipline while changing the unit of understanding from “a local business and its website” to “a tenant’s business, a play, an account, a buying center, and evidence-backed next action.”
 
 ## 7. Goals and non-goals
 
@@ -416,7 +416,7 @@ Integrations should be additive and permissioned: Supabase Auth and Postgres as 
 
 Quality gates should include schema validation, evidence coverage, citation resolution, source freshness, duplicate/entity-resolution accuracy, score stability, policy checks, and human-review agreement. Maintain golden datasets for several unlike businesses, including the specialty-chemicals example and at least one non-industrial example. Test adversarial documents, prompt injection, contradictory catalogs, stale sites, duplicate companies, ambiguous subsidiaries, opt-outs, unsupported claims, provider outages, retries, cancellation, and partial ingestion.
 
-The existing Nova Trade release discipline—typecheck, lint, unit tests, read-only browser smoke, recovery checks, and explicit authenticated/mutating boundaries—should be extended rather than discarded. Future agent changes require replayable fixtures and regression comparisons against approved outputs.
+The existing Nova Lead Management release discipline—typecheck, lint, unit tests, read-only browser smoke, recovery checks, and explicit authenticated/mutating boundaries—should be extended rather than discarded. Future agent changes require replayable fixtures and regression comparisons against approved outputs.
 
 ## 19. Compliance and risk controls
 
@@ -483,7 +483,7 @@ Progression between phases depends on isolation, evidence, quality, cost, and hu
 
 - Which initial customer segment and jurisdictions justify the first paid launch?
 - Which document types, languages, OCR quality, and maximum file sizes are required at launch?
-- Which public, licensed, CRM, and directory sources are legally and economically available to Nova Trade?
+- Which public, licensed, CRM, and directory sources are legally and economically available to Nova Lead Management?
 - What is the tenant’s required retention, deletion, export, and support-access policy?
 - Which roles can approve ICPs, activate plays, approve contacts, and approve outreach?
 - What evidence threshold is required for each claim class, such as technical performance, certification, pricing, or regulatory status?
@@ -492,7 +492,7 @@ Progression between phases depends on isolation, evidence, quality, cost, and hu
 - Which outreach channels, if any, will be enabled after draft-only validation, and what consent model applies to each?
 - What CRM is the first integration target, and which system is authoritative for contacts and outcomes?
 - What quality benchmark and golden datasets will define “good enough” for each initial vertical?
-- Assumption: existing Nova Trade users and data remain available during migration, with old website-specific plays represented as one specialized play rather than deleted.
+- Assumption: existing Nova Lead Management users and data remain available during migration, with old website-specific plays represented as one specialized play rather than deleted.
 - Assumption: tenants own or are authorized to provide uploaded materials and customer lists.
 - Assumption: all future provider integrations are opt-in, tenant-scoped, budgeted, and independently reviewable.
 
@@ -513,8 +513,8 @@ The future product is acceptable when all of the following are true for the agre
 11. Tenant admins can manage members, connectors, budgets, retention, exports/deletion, and audit access; platform support access is time-bound, reason-coded, and audited.
 12. Long-running ingestion and agent workflows survive retries, cancellation, provider errors, stale leases, and partial failure without duplicate side effects or lost provenance.
 13. Quality, security, privacy, compliance, performance, cost, and accessibility checks meet the launch thresholds agreed for the selected market and channels.
-14. Existing Nova Trade local-website workflows remain functional during the transition, but shared product contracts no longer require websites, reviews, ratings, Colorado zip codes, or Google Places as universal assumptions.
+14. Existing Nova Lead Management local-website workflows remain functional during the transition, but shared product contracts no longer require websites, reviews, ratings, Colorado zip codes, or Google Places as universal assumptions.
 
 ## 24. Recommendation
 
-Proceed by evolving the current Nova Trade foundation in place, using its worker, queue, audit, budget, scoring, AI artifact, and review patterns as proven infrastructure. Generalize the domain model and policy boundaries first; then add tenant business understanding, adaptive questions, play versioning, connector abstraction, account/buying-center intelligence, and human-approved outreach. Keep the current local-website workflow as one compatibility play during migration, while making the platform’s durable center of gravity the tenant’s evidence-backed business strategy and measurable learning loop.
+Proceed by evolving the current Nova Lead Management foundation in place, using its worker, queue, audit, budget, scoring, AI artifact, and review patterns as proven infrastructure. Generalize the domain model and policy boundaries first; then add tenant business understanding, adaptive questions, play versioning, connector abstraction, account/buying-center intelligence, and human-approved outreach. Keep the current local-website workflow as one compatibility play during migration, while making the platform’s durable center of gravity the tenant’s evidence-backed business strategy and measurable learning loop.

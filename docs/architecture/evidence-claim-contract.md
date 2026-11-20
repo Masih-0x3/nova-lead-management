@@ -1,4 +1,4 @@
-# Nova Trade Evidence and Claim Contract (D-008)
+# Nova Lead Management Evidence and Claim Contract (D-008)
 
 **Status:** Parent-conductor accepted local implementation contract; this document does not claim runtime or production enforcement.
 
@@ -16,7 +16,7 @@
 
 ## 1. Decision summary
 
-Nova Trade will treat a consequential assertion as a versioned **claim** supported by one or more immutable or versioned **evidence items**. Evidence records what a source returned or what a tenant supplied. A claim is a normalized assertion about a tenant's business, an account, a contact/role, a product, an application, a commercial condition, or a research result. Claims are never proven by an AI confidence number alone.
+Nova Lead Management will treat a consequential assertion as a versioned **claim** supported by one or more immutable or versioned **evidence items**. Evidence records what a source returned or what a tenant supplied. A claim is a normalized assertion about a tenant's business, an account, a contact/role, a product, an application, a commercial condition, or a research result. Claims are never proven by an AI confidence number alone.
 
 The contract has separate dimensions:
 

@@ -71,7 +71,7 @@ The skipped Vitest file is the opt-in disposable-Postgres RLS suite. This turn d
 
 - No staged files existed at the start of stabilization.
 - Only `main` and its single authoritative worktree existed.
-- The release-check process tree exited; no Nova Trade Node/npm/Next/Playwright process or listener remained afterward.
+- The release-check process tree exited; no Nova Lead Management Node/npm/Next/Playwright process or listener remained afterward.
 - Docker could not have a running container while its Windows/WSL daemon was stopped, but stopped containers, networks, and volumes could not be enumerated in this turn.
 - Ignored `.next` and `test-results` outputs were produced by the successful gate. An attempted exact-path cleanup was blocked by the shell safety policy; neither path is part of the baseline commit.
 - The local SQLite database and its WAL/SHM files were not treated as disposable and were not changed or deleted by stabilization.
@@ -84,6 +84,6 @@ Completed by the final conductor:
 1. Verify the exact staged names contain only the owned transition manifest and these control artifacts.
 2. Run `git diff --cached --check` and inspect the staged diff/stat.
 3. Confirm the ledger is valid JSONL and contains the current authority and G-001 reconciliation events.
-4. Confirm no active Nova Trade validation process remains.
+4. Confirm no active Nova Lead Management validation process remains.
 5. Create the local integration branch and the single reviewed transition-baseline commit.
 6. Appended the resulting commit identity through `concurrency_baseline_accepted`, committed that control event, and created all five domain branches/worktrees from `1c9647d76c35dbac991b07eb962de5a54135bce2`.

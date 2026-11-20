@@ -1,4 +1,4 @@
-# Nova Trade multi-tenant platform UI specification
+# Nova Lead Management multi-tenant platform UI specification
 
 **Artifact:** UI-000 draft visual and interaction specification
 
@@ -9,7 +9,7 @@
 
 ## 1. Product character and screen job
 
-Nova Trade is a dense, evidence-first operating console. Its job is to let a tenant member move from approved business knowledge to bounded research and human-reviewed outreach while keeping scope, provenance, policy, and irreversible consequences visible. Preserve the current warm terracotta/ink glass language and Geist typography: calm, precise, tactile, and operational rather than decorative.
+Nova Lead Management is a dense, evidence-first operating console. Its job is to let a tenant member move from approved business knowledge to bounded research and human-reviewed outreach while keeping scope, provenance, policy, and irreversible consequences visible. Preserve the current warm terracotta/ink glass language and Geist typography: calm, precise, tactile, and operational rather than decorative.
 
 The design extends existing tokens and primitives in `src/app/globals.css`, `NavHeader`, and `PageShell`. It adds no library and does not prescribe application code. Glass is a hierarchy device: heavy glass for scope and page headers, regular glass for work surfaces, muted surfaces for secondary context. Never blur dense table text or place multiple translucent layers behind body copy.
 

@@ -1,4 +1,4 @@
-# Nova Trade Concurrent Multi-Conductor Execution Plan
+# Nova Lead Management Concurrent Multi-Conductor Execution Plan
 
 > **ARCHIVED — NOT ACTIVE.** No instruction below governs current execution. Use
 > [`2026-08-29-lean-finish-plan.md`](./2026-08-29-lean-finish-plan.md) for the active
@@ -18,7 +18,7 @@
 
 ## Executive decision
 
-Nova Trade will use one final integration conductor and five bounded domain conductors. Each conductor receives a dedicated thread, branch, and worktree. Domain conductors may supervise multiple workers, but they cannot merge into the integration branch or declare program-level acceptance.
+Nova Lead Management will use one final integration conductor and five bounded domain conductors. Each conductor receives a dedicated thread, branch, and worktree. Domain conductors may supervise multiple workers, but they cannot merge into the integration branch or declare program-level acceptance.
 
 The final integration conductor is the single authority for:
 

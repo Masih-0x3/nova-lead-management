@@ -8,7 +8,7 @@
 
 ## 1) Purpose and boundaries
 
-D-012 defines deterministic policy gates for whether Nova Trade may:
+D-012 defines deterministic policy gates for whether Nova Lead Management may:
 
 1. research a contact candidate,
 2. generate an approved outreach draft for that contact,

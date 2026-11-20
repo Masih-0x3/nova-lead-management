@@ -1,4 +1,4 @@
-# NoSite Leads Outbound Call Playbook
+# Nova Lead Management Outbound Call Playbook
 
 This is a practical first-call playbook for selling local websites to businesses that appear to have no website, a social-only presence, a basic site, or a broken/weak site.
 

@@ -1,4 +1,4 @@
-# Nova Trade Linux handoff checkpoint
+# Nova Lead Management Linux handoff checkpoint
 
 Date: 2026-07-31
 

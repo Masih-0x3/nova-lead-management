@@ -1,4 +1,4 @@
-# Nova Trade concurrency registry
+# Nova Lead Management concurrency registry
 
 Date: 2026-07-29
 
@@ -6,7 +6,7 @@ Status: **Stage 3 pilot accepted; Stage 4 active; G-003, G-004A, G-005, G-006R, 
 
 ## Final integration authority
 
-- User-facing task: current Nova Trade goal task (`019fae23-6627-7d61-a9f3-f5e68d72093e`).
+- User-facing task: current Nova Lead Management goal task (`019fae23-6627-7d61-a9f3-f5e68d72093e`).
 - Canonical repository: `C:\Users\Masih\OneDrive\Documents\Nova Trade\nova-trade-lead-management`.
 - Integration branch: `codex/nova-multitenant-integration`.
 - Authority: source truth, dependency readiness, shared locks, final review, local merge, ledger acceptance, phase acceptance, and completion decisions.
