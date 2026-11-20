@@ -159,18 +159,8 @@ function getRequestOrigin(request?: Request): string | null {
   }
 }
 
-function normalizeOrigin(value: string | undefined): string | null {
-  const trimmed = value?.trim().replace(/\/+$/, "");
-  if (!trimmed) return null;
-  try {
-    return new URL(trimmed).origin;
-  } catch {
-    return trimmed;
-  }
-}
-
 function checkAppUrlEnv(value: string | undefined, requestOrigin: string | null): HealthCheck {
-  const configured = normalizeOrigin(value);
+  const configured = value?.trim().replace(/\/+$/, "");
   if (!configured) {
     return { status: "degraded", message: "NEXT_PUBLIC_APP_URL is missing; auth links cannot be built in production." };
   }
