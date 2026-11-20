@@ -2,9 +2,8 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-export const DATA_EXPORT_FORMAT = "nova-data-export";
-// Pre-rebrand exports remain importable.
-export const LEGACY_DATA_EXPORT_FORMATS = Object.freeze(["nosite-data-export"]);
+// Persisted archive identifier: pinned G006B evidence compares manifests byte-for-byte.
+export const DATA_EXPORT_FORMAT = "nosite-data-export";
 export const LEGACY_DATA_EXPORT_SCHEMA_VERSION = 3;
 export const DATA_EXPORT_SCHEMA_VERSION = 4;
 export const TENANT_INTEGRITY_CONTRACT_VERSION = 1;
@@ -525,7 +524,7 @@ export function validateDataExportDirectory(inputDir) {
     "Export manifest",
   );
 
-  if (manifest.format !== DATA_EXPORT_FORMAT && !LEGACY_DATA_EXPORT_FORMATS.includes(manifest.format)) {
+  if (manifest.format !== DATA_EXPORT_FORMAT) {
     throw new Error(`Unsupported export format: ${String(manifest.format ?? "missing")}`);
   }
   const contracts = tableContractsForSchemaVersion(manifest.schemaVersion);
