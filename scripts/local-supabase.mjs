@@ -305,8 +305,21 @@ function roles() {
   log("restricted lease roles provisioned via scripts/seed-local-tenant.mjs");
 }
 
+// Demo dataset (Colorado trades leads, outreach, crawl runs) on top of the
+// tenant foundation so Explorer/Workbench/Statistics/Scheduler render data.
+// Skip with NOVA_SKIP_DEMO_SEED=1.
+function runDemoSeed() {
+  if (process.env.NOVA_SKIP_DEMO_SEED === "1") return;
+  const res = sh("node", [join(ROOT, "scripts", "seed-demo-leads.mjs")], {
+    pipe: false,
+    env: { ...process.env, DATABASE_URL: DB_SUPER_URL },
+  });
+  if (res.status !== 0) process.exit(res.status ?? 1);
+}
+
 async function seed() {
   runCanonicalSeed();
+  runDemoSeed();
 }
 
 // ---------- disposable PG16 rehearsal cluster ----------
@@ -494,11 +507,13 @@ async function verify() {
   checks.push(["issuer no lease table privs", q(`SELECT NOT has_table_privilege('${CANONICAL_ISSUER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${CANONICAL_ISSUER_ROLE}','public.tenant_worker_dispatch_leases','INSERT')`)]);
   checks.push(["resolver no lease table privs", q(`SELECT NOT has_table_privilege('${CANONICAL_RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${CANONICAL_RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','UPDATE')`)]);
   checks.push(["auth users", q(`SELECT count(*) >= 2 FROM auth.users`)]);
-  // The seeded tenant slug differs per profile (local imports `nova-local`
-  // from the data import; staging seeds `local-demo`). NOVA_VERIFY_TENANT_SLUG
-  // overrides for the staging rehearsal.
-  const seedSlug = process.env.NOVA_VERIFY_TENANT_SLUG ?? "nova-local";
+  // seed-local-tenant.mjs seeds slug `local-demo` (LOCAL_TENANT_SLUG); a
+  // legacy data import may use `nova-local`. NOVA_VERIFY_TENANT_SLUG overrides.
+  const seedSlug = process.env.NOVA_VERIFY_TENANT_SLUG ?? process.env.LOCAL_TENANT_SLUG ?? "local-demo";
   checks.push(["tenant seeded", q(`SELECT status='active' FROM public.tenants WHERE slug='${seedSlug}'`)]);
+  if (process.env.NOVA_SKIP_DEMO_SEED !== "1") {
+    checks.push(["demo leads seeded", q(`SELECT count(*) >= 25 FROM public.leads l JOIN public.tenants t ON t.id = l.tenant_id WHERE t.slug='${seedSlug}' AND l.id LIKE 'demo-lead-%'`)]);
+  }
   checks.push(["app_users seeded", q(`SELECT count(*) >= 2 FROM public.app_users`)]);
   try {
     const r = await fetch(`${GATEWAY_URL}/auth/v1/health`);
