@@ -16,6 +16,7 @@ local setup, the checks every change must pass, and the conventions we follow.
 
 ```bash
 npm ci
+npx playwright install chromium   # browser for release:check and e2e lanes
 node scripts/local-supabase.mjs all   # bootstraps the local Supabase stack and writes .env.local
 npm run dev                           # http://localhost:3000
 ```
