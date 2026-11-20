@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth";
 import { updatePasswordAction } from "./actions";
 
 export const metadata: Metadata = {
-    title: "Set New Password | Nova Trade Lead Management",
+    title: "Set New Password | Nova Lead Management",
 };
 
 type ResetPasswordPageProps = {

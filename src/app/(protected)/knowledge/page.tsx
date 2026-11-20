@@ -17,7 +17,7 @@ import type { AdaptiveQuestionSession, QuestionAnswerRecord } from "@/lib/unders
 import { PendingSeamNotice, SurfaceNotice } from "../_lib/surface";
 import { KnowledgeWorkspace } from "./workspace";
 
-export const metadata: Metadata = { title: "Knowledge | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Knowledge | Nova Lead Management" };
 
 export default async function KnowledgePage(props: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

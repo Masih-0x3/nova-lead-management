@@ -19,7 +19,7 @@ describe("public trust pages", () => {
     expect(privacy).toContain("official Google Places API only");
     expect(privacy).toContain("No Google review text");
     expect(privacy).toContain("Retention and export");
-    expect(privacy).toContain("support [at] nosite.xyz");
+    expect(privacy).toContain("Nova Lead Management support");
 
     expect(terms).toContain("Invite-only access");
     expect(terms).toContain("No automated outbound sending");
@@ -28,7 +28,7 @@ describe("public trust pages", () => {
 
     expect(support).toContain("Correction or removal path");
     expect(support).toContain("Retention and export help");
-    expect(support).toContain("Nova Trade Lead Management does not provide automated outbound sending");
+    expect(support).toContain("Nova Lead Management does not provide automated outbound sending");
 
     expect(dataSources).toContain("official Google Places API only");
     expect(dataSources).toContain("no Google review scraping or storage");

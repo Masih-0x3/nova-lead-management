@@ -10,7 +10,7 @@ import { assertTenantPermission } from "@/lib/tenancy/authorize";
 import { runWithTenantContext } from "@/lib/tenancy/context";
 import { SchedulerClient } from "./scheduler-client";
 
-export const metadata: Metadata = { title: "Scheduler | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Scheduler | Nova Lead Management" };
 
 export default async function SchedulerPage() {
   const logRouteTiming = startRouteTiming("/scheduler");

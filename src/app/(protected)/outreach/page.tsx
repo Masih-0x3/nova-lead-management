@@ -20,7 +20,7 @@ import { getTenantSession } from "@/lib/auth";
 import { loadSurface, SurfaceNotice } from "../_lib/surface";
 import { OutreachWorkspace, type DraftDetail } from "./workspace";
 
-export const metadata: Metadata = { title: "Outreach | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Outreach | Nova Lead Management" };
 
 const DESCRIPTION = "Draft review, approval, and copy/export handoffs — there is no send path.";
 

@@ -9,7 +9,7 @@ import { startRouteTiming } from "@/lib/route-timing";
 import { assertTenantPermission } from "@/lib/tenancy/authorize";
 import { runWithTenantContext } from "@/lib/tenancy/context";
 
-export const metadata: Metadata = { title: "Team Board | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Team Board | Nova Lead Management" };
 
 export default async function TeamBoardPage() {
   const logRouteTiming = startRouteTiming("/team");

@@ -12,7 +12,7 @@ import { runWithTenantContext } from "@/lib/tenancy/context";
 import { LeadsClient } from "./leads-client";
 import { KanbanClient } from "./kanban-client";
 
-export const metadata: Metadata = { title: "Leads | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Leads | Nova Lead Management" };
 const KANBAN_PAGE_SIZE = 100;
 
 interface Props {

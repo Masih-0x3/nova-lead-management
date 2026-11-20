@@ -6,7 +6,7 @@ import { startRouteTiming } from "@/lib/route-timing";
 import { PageShell } from "@/components/page-shell";
 import { SettingsClient } from "./settings-client";
 
-export const metadata: Metadata = { title: "Platform Settings | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Platform Settings | Nova Lead Management" };
 
 export default async function SettingsPage() {
   const logRouteTiming = startRouteTiming("/settings");
