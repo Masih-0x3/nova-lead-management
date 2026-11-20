@@ -158,7 +158,7 @@ function buildLead([name, trade, cityIndex, websiteStatus, status, assigned], in
       : null,
     ai_recommendation: aiChecked ? (websiteStatus === "custom" ? "skip" : "pitch") : null,
     ai_checked_at: aiChecked ? daysAgo(1 + (index % 6)) : null,
-    ai_queue_status: aiChecked ? "done" : "queued",
+    ai_queue_status: aiChecked ? "verified" : "queued",
     enrichment_status: aiChecked ? "enriched" : "pending",
     enriched_at: aiChecked ? daysAgo(1 + (index % 6), 2) : null,
     editorial_summary: `Family-owned ${trade} contractor serving ${city.locality} and nearby suburbs.`,
