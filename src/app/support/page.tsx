@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { PublicTrustPage, PUBLIC_TRUST_ROBOTS, SUPPORT_CONTACT } from "@/app/_components/public-trust-page";
 
 export const metadata: Metadata = {
-  title: "Support | Nova Trade Lead Management",
-  description: "Support, correction, removal, export, and demo ownership contact paths for Nova Trade Lead Management.",
+  title: "Support | Nova Lead Management",
+  description: "Support, correction, removal, export, and demo ownership contact paths for Nova Lead Management.",
   robots: PUBLIC_TRUST_ROBOTS,
 };
 
@@ -22,7 +22,7 @@ export default function SupportPage() {
       sections={[
         {
           title: "Support contact",
-          body: `Email ${SUPPORT_CONTACT} for account support, correction requests, removal requests, retention and export questions, or demo page concerns.`,
+          body: `Contact ${SUPPORT_CONTACT} for account support, correction requests, removal requests, retention and export questions, or demo page concerns.`,
         },
         {
           title: "Correction or removal path",
@@ -30,7 +30,7 @@ export default function SupportPage() {
           items: [
             "Include the business name, location, website if available, and the specific detail that should be corrected or removed.",
             "If the request concerns a generated demo page, include the demo URL or the page title visible in the browser.",
-            "Nova Trade Lead Management reviews requests against the current workspace record and corrects or removes inaccurate, unwanted, or stale references where appropriate.",
+            "Nova Lead Management reviews requests against the current workspace record and corrects or removes inaccurate, unwanted, or stale references where appropriate.",
           ],
         },
         {
@@ -43,7 +43,7 @@ export default function SupportPage() {
         },
         {
           title: "Outbound sending",
-          body: "Nova Trade Lead Management does not provide automated outbound sending. Operators are responsible for any manual email, phone, SMS, or in-person outreach they choose to perform.",
+          body: "Nova Lead Management does not provide automated outbound sending. Operators are responsible for any manual email, phone, SMS, or in-person outreach they choose to perform.",
         },
       ]}
     />

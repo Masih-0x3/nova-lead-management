@@ -108,7 +108,7 @@ export function NavHeader({
           <BrandMark />
           <div className="min-w-0">
             <h1 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              Nova Trade
+              Nova
             </h1>
             <p className="hidden text-[0.6875rem] leading-tight xl:block" style={{ color: "var(--text-tertiary)" }}>
               Lead intelligence

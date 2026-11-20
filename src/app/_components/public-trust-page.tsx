@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const SUPPORT_CONTACT = "support [at] nosite.xyz";
+export const SUPPORT_CONTACT = "Nova Lead Management support";
 
 export const PUBLIC_TRUST_ROBOTS: Metadata["robots"] = {
   index: true,
@@ -64,11 +64,11 @@ export function PublicTrustPage({
               }}
               aria-hidden="true"
             >
-              NS
+              N
             </span>
             <span>
               <span className="block text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                Nova Trade Lead Management
+                Nova Lead Management
               </span>
               <span className="block text-xs" style={{ color: "var(--text-tertiary)" }}>
                 Invite-only workspace
@@ -162,8 +162,8 @@ export function PublicTrustPage({
           className="flex flex-col gap-3 border-t py-6 text-sm sm:flex-row sm:items-center sm:justify-between"
           style={{ borderColor: "var(--glass-border-light)", color: "var(--text-tertiary)" }}
         >
-                <span>Nova Trade Lead Management is public only for trust, support, and data-source information.</span>
-          <span className="font-medium" style={{ color: "var(--accent)" }} aria-label="support at nosite dot xyz">
+                <span>Nova Lead Management is public only for trust, support, and data-source information.</span>
+          <span className="font-medium" style={{ color: "var(--accent)" }}>
             {SUPPORT_CONTACT}
           </span>
         </footer>

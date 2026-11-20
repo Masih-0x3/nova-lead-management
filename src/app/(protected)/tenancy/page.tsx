@@ -50,7 +50,7 @@ import {
 import { loadSurface, PendingSeamNotice, SurfaceNotice } from "../_lib/surface";
 import { TenantLifecycleControls } from "./workspace";
 
-export const metadata: Metadata = { title: "Tenant Admin | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Tenant Admin | Nova Lead Management" };
 
 const AUDIT_ACTOR_LAYERS = new Set<AuditActorLayer>(["member", "support", "worker", "agent", "system"]);
 const AUDIT_OUTCOMES = new Set<TenantAuditEntry["outcome"]>(["allowed", "denied", "failed"]);

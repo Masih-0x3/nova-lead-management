@@ -12,7 +12,7 @@ import { getTenantSession } from "@/lib/auth";
 import { loadSurface, SurfaceNotice } from "../_lib/surface";
 import { ContactsWorkspace } from "./workspace";
 
-export const metadata: Metadata = { title: "Contacts | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Contacts | Nova Lead Management" };
 
 const DESCRIPTION = "Governed contacts and buying-center hypotheses for the active workspace.";
 

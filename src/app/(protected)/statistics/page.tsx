@@ -10,7 +10,7 @@ import { assertTenantPermission } from "@/lib/tenancy/authorize";
 import { runWithTenantContext } from "@/lib/tenancy/context";
 import { StatisticsClient } from "./statistics-client";
 
-export const metadata: Metadata = { title: "Statistics | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Statistics | Nova Lead Management" };
 
 interface Props {
   searchParams: Promise<{

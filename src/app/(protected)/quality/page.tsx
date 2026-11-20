@@ -19,7 +19,7 @@ import { assertTenantPermission } from "@/lib/tenancy/authorize";
 import { runWithTenantContext } from "@/lib/tenancy/context";
 import { QualityClient } from "./quality-client";
 
-export const metadata: Metadata = { title: "Quality | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Quality | Nova Lead Management" };
 
 interface Props {
   searchParams: Promise<{

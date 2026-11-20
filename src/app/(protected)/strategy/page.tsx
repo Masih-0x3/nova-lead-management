@@ -22,7 +22,7 @@ import { TenantAuthorizationError } from "@/lib/tenancy/authorize";
 import { loadSurface, SurfaceNotice } from "../_lib/surface";
 import { StrategyWorkspace } from "./workspace";
 
-export const metadata: Metadata = { title: "Strategy | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Strategy | Nova Lead Management" };
 
 export type UnderstandingClaimOption = Readonly<{
   claimId: string;

@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 import { loadSurface, SurfaceNotice } from "../_lib/surface";
 import { DiscoveryWorkspace } from "./workspace";
 
-export const metadata: Metadata = { title: "Discovery | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Discovery | Nova Lead Management" };
 
 const DESCRIPTION = "Discovery plans and runs bound to activated lead plays.";
 

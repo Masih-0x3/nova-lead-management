@@ -1,6 +1,6 @@
 {
-  "name": "Nova Trade Lead Management",
-  "short_name": "Nova Trade",
+  "name": "Nova Lead Management",
+  "short_name": "Nova",
   "description": "Private lead discovery and outreach workspace.",
   "start_url": "/queue",
   "scope": "/",

@@ -52,7 +52,7 @@ import ForgotPasswordPage from "@/app/forgot-password/page";
 beforeEach(() => {
   vi.clearAllMocks();
   authMocks.isAuthConfigured.mockResolvedValue(true);
-  headerMocks.headers.mockResolvedValue({ get: () => "https://www.nosite.xyz" });
+  headerMocks.headers.mockResolvedValue({ get: () => "https://app.example.test" });
   operationalLoggingMocks.recordOperationalEvent.mockResolvedValue(undefined);
   routeTimingMocks.startRouteTiming.mockReturnValue(routeTimingMocks.logRouteTiming);
   supabaseMocks.createSupabaseServerClient.mockResolvedValue({
@@ -102,7 +102,7 @@ describe("forgot-password error handling", () => {
   it.each([
     ["missing_config", "Supabase Auth is not configured."],
     ["invalid_email", "Enter a valid email address."],
-    ["missing_origin", "Password reset links must use https://www.nosite.xyz. Ask an admin to check NEXT_PUBLIC_APP_URL in Vercel."],
+    ["missing_origin", "Password reset links must use the canonical production app URL. Ask an admin to check NEXT_PUBLIC_APP_URL in Vercel."],
     ["expired_link", "That account link is expired or was already used. Request a fresh reset link and open only the newest email."],
   ])("preserves the %s public error message", async (error, expectedMessage) => {
     const node = await ForgotPasswordPage({

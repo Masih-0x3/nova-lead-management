@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       return getAuthorizedLead(id, session, tenantSession);
     }));
 
-  return { title: `${lead?.name ?? "Lead"} | Nova Trade Lead Management` };
+  return { title: `${lead?.name ?? "Lead"} | Nova Lead Management` };
 }
 
 export default async function LeadDetailPage({ params }: Props) {
@@ -95,7 +95,7 @@ export default async function LeadDetailPage({ params }: Props) {
 }
 
 function genericMetadata(): Metadata {
-  return { title: "Lead | Nova Trade Lead Management" };
+  return { title: "Lead | Nova Lead Management" };
 }
 
 async function resolveBoundTenantSession(
