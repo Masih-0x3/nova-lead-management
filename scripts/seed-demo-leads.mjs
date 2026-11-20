@@ -121,7 +121,9 @@ function buildLead([name, trade, cityIndex, websiteStatus, status, assigned], in
   const aiChecked = qualityBucket !== "needs_ai_verify";
   const aiStatus = !aiChecked ? "not_checked" : noSite ? "no_site_found" : weakSite ? "weak_site_found" : "site_found";
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  const discovered = daysAgo(2 + (index % 28), index % 9);
+  const discoveredDays = 2 + (index % 28);
+  const discovered = daysAgo(discoveredDays, index % 9);
+  const checkedDays = Math.min(1 + (index % 6), discoveredDays - 1);
   const contacted = rank >= 2 ? daysAgo(Math.max(0, (index % 28) - 1) % 10, 3) : null;
   const closed = status === "closed_won" || status === "closed_lost";
   const dealValue = spec.deal + (seed % 5) * 200;
@@ -157,10 +159,10 @@ function buildLead([name, trade, cityIndex, websiteStatus, status, assigned], in
       ? `${name} is an established ${trade} business in ${city.locality} with ${reviewCount} reviews (${rating}★). ${noSite ? "No standalone website was found." : weakSite ? "Its website is a thin template with no booking path." : "It already runs a modern website."}`
       : null,
     ai_recommendation: aiChecked ? (websiteStatus === "custom" ? "skip" : "pitch") : null,
-    ai_checked_at: aiChecked ? daysAgo(1 + (index % 6)) : null,
+    ai_checked_at: aiChecked ? daysAgo(checkedDays) : null,
     ai_queue_status: aiChecked ? "verified" : "queued",
     enrichment_status: aiChecked ? "enriched" : "pending",
-    enriched_at: aiChecked ? daysAgo(1 + (index % 6), 2) : null,
+    enriched_at: aiChecked ? daysAgo(checkedDays, 2) : null,
     editorial_summary: `Family-owned ${trade} contractor serving ${city.locality} and nearby suburbs.`,
     discovered_at: discovered,
     created_at: discovered,
