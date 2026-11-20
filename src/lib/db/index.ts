@@ -1,4 +1,5 @@
 import postgres, { type Sql, type TransactionSql } from "postgres";
+import fs from "fs";
 import path from "path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SCHEMA_SQL, MIGRATION_COLUMNS } from "./schema";
@@ -115,6 +116,15 @@ interface TransactionContextInstaller {
   installTransactionLocalContext(entries: readonly (readonly [string, string])[]): Promise<void>;
 }
 
+export const SQLITE_DB_FILENAME = "nova-leads.db";
+const LEGACY_SQLITE_DB_FILENAME = "nosite-leads.db";
+
+export function resolveSqliteDbPath(root: string): string {
+  const current = path.join(root, SQLITE_DB_FILENAME);
+  const legacy = path.join(root, LEGACY_SQLITE_DB_FILENAME);
+  return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current;
+}
+
 export async function getDb(): Promise<DbClient> {
   const scoped = scopedDbClient.getStore();
   if (scoped) return scoped;
@@ -126,7 +136,7 @@ export async function getDb(): Promise<DbClient> {
     return _db;
   }
 
-  const dbPath = path.join(process.cwd(), "nosite-leads.db");
+  const dbPath = resolveSqliteDbPath(process.cwd());
   const { default: DatabaseFactory } = await import("better-sqlite3");
   const sqlite = new DatabaseFactory(dbPath);
   sqlite.pragma("journal_mode = WAL");

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Nova Trade — isolated ephemeral staging rehearsal.
+ * Nova Lead Management — isolated ephemeral staging rehearsal.
  *
  *   node scripts/staging-rehearsal.mjs rehearse
  *   node scripts/staging-rehearsal.mjs help | --help

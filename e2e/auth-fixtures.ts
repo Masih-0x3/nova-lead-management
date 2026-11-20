@@ -9,7 +9,7 @@ import {
 } from "../scripts/e2e-safety.mjs";
 
 export const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
-export const EMAIL = process.env.E2E_SUPABASE_EMAIL ?? process.env.NOSITE_BOOTSTRAP_ADMIN_EMAIL ?? "";
+export const EMAIL = process.env.E2E_SUPABASE_EMAIL ?? process.env.NOVA_BOOTSTRAP_ADMIN_EMAIL ?? process.env.NOSITE_BOOTSTRAP_ADMIN_EMAIL ?? "";
 export const PASSWORD = process.env.E2E_SUPABASE_PASSWORD ?? "";
 export const STORAGE_STATE = process.env.E2E_STORAGE_STATE?.trim() ?? "";
 export const HAS_E2E_AUTH = hasE2EAuth();
@@ -48,7 +48,7 @@ export async function login(page: Page): Promise<void> {
   }
 
   await page.goto(`${BASE_URL}/login`, { waitUntil: "networkidle", timeout: 30000 });
-  await expect(page.locator("h1")).toContainText("Nova Trade");
+  await expect(page.locator("h1")).toContainText("Nova Lead Management");
   await page.getByLabel("Email").fill(EMAIL);
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();

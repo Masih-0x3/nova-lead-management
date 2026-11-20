@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+// Persisted archive identifier: pinned G006B evidence compares manifests byte-for-byte.
 export const DATA_EXPORT_FORMAT = "nosite-data-export";
 export const LEGACY_DATA_EXPORT_SCHEMA_VERSION = 3;
 export const DATA_EXPORT_SCHEMA_VERSION = 4;

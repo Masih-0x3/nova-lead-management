@@ -30,6 +30,15 @@ const supabaseMocks = vi.hoisted(() => ({
   resetPasswordForEmail: vi.fn(),
 }));
 
+const appUrlMocks = vi.hoisted(() => ({
+  resolveCanonicalAppUrl: vi.fn(),
+}));
+
+vi.mock("@/lib/app-url", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/app-url")>();
+  appUrlMocks.resolveCanonicalAppUrl.mockImplementation(actual.resolveCanonicalAppUrl);
+  return { ...actual, resolveCanonicalAppUrl: appUrlMocks.resolveCanonicalAppUrl };
+});
 vi.mock("@/lib/auth", () => authMocks);
 vi.mock("next/headers", () => headerMocks);
 vi.mock("next/navigation", () => navigationMocks);
@@ -52,7 +61,7 @@ import ForgotPasswordPage from "@/app/forgot-password/page";
 beforeEach(() => {
   vi.clearAllMocks();
   authMocks.isAuthConfigured.mockResolvedValue(true);
-  headerMocks.headers.mockResolvedValue({ get: () => "https://www.nosite.xyz" });
+  headerMocks.headers.mockResolvedValue({ get: () => "https://app.example.test" });
   operationalLoggingMocks.recordOperationalEvent.mockResolvedValue(undefined);
   routeTimingMocks.startRouteTiming.mockReturnValue(routeTimingMocks.logRouteTiming);
   supabaseMocks.createSupabaseServerClient.mockResolvedValue({
@@ -74,6 +83,25 @@ describe("forgot-password error handling", () => {
     expect(operationalLoggingMocks.recordOperationalEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({ error: diagnostic }),
+      }),
+    );
+  });
+
+  it("redirects to the configuration error when the app URL cannot be resolved", async () => {
+    appUrlMocks.resolveCanonicalAppUrl.mockImplementationOnce(() => {
+      throw new Error("NEXT_PUBLIC_APP_URL is required in production to build auth links.");
+    });
+    const formData = new FormData();
+    formData.set("email", "user@example.com");
+
+    await expect(requestPasswordResetAction(formData)).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(navigationMocks.redirect).toHaveBeenCalledWith("/forgot-password?error=missing_origin");
+    expect(supabaseMocks.resetPasswordForEmail).not.toHaveBeenCalled();
+    expect(operationalLoggingMocks.recordOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "auth_password_reset_request_failed",
+        metadata: expect.objectContaining({ reason: "missing_app_url" }),
       }),
     );
   });
@@ -102,7 +130,7 @@ describe("forgot-password error handling", () => {
   it.each([
     ["missing_config", "Supabase Auth is not configured."],
     ["invalid_email", "Enter a valid email address."],
-    ["missing_origin", "Password reset links must use https://www.nosite.xyz. Ask an admin to check NEXT_PUBLIC_APP_URL in Vercel."],
+    ["missing_origin", "Password reset links need a configured app URL. Ask an admin to check NEXT_PUBLIC_APP_URL in Vercel."],
     ["expired_link", "That account link is expired or was already used. Request a fresh reset link and open only the newest email."],
   ])("preserves the %s public error message", async (error, expectedMessage) => {
     const node = await ForgotPasswordPage({

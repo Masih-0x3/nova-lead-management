@@ -10,9 +10,9 @@ describe("ensureDbReady", () => {
   });
 
   it("allows a later request to retry after initialization fails", async () => {
-    vi.stubEnv("DATABASE_URL", "postgres://example.invalid/nosite");
-    vi.stubEnv("NOSITE_RUNTIME_POSTGRES_REPAIR", "0");
-    vi.stubEnv("NOSITE_RUNTIME_GEOGRAPHY_BACKFILL", "0");
+    vi.stubEnv("DATABASE_URL", "postgres://example.invalid/nova");
+    vi.stubEnv("NOVA_RUNTIME_POSTGRES_REPAIR", "0");
+    vi.stubEnv("NOVA_RUNTIME_GEOGRAPHY_BACKFILL", "0");
 
     const getDb = vi.fn()
       .mockRejectedValueOnce(new Error("temporary database outage"))
@@ -31,10 +31,10 @@ describe("ensureDbReady", () => {
   });
 
   it("leaves accepted tenant index families exclusively owned by migrations", async () => {
-    vi.stubEnv("DATABASE_URL", "postgres://example.invalid/nosite");
-    vi.stubEnv("NOSITE_RUNTIME_POSTGRES_REPAIR", "1");
-    vi.stubEnv("NOSITE_RUNTIME_GEOGRAPHY_BACKFILL", "0");
-    vi.stubEnv("NOSITE_RUNTIME_ZIP_SEED", "0");
+    vi.stubEnv("DATABASE_URL", "postgres://example.invalid/nova");
+    vi.stubEnv("NOVA_RUNTIME_POSTGRES_REPAIR", "1");
+    vi.stubEnv("NOVA_RUNTIME_GEOGRAPHY_BACKFILL", "0");
+    vi.stubEnv("NOVA_RUNTIME_ZIP_SEED", "0");
 
     const exec = vi.fn().mockResolvedValue(undefined);
     const db = { exec };

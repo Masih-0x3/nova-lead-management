@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ForgotPasswordForm } from "./forgot-password-form";
 
 export const metadata: Metadata = {
-  title: "Reset Password | Nova Trade Lead Management",
+  title: "Reset Password | Nova Lead Management",
 };
 
 type ForgotPasswordPageProps = {
@@ -48,7 +48,7 @@ function getErrorMessage(error?: string): string | null {
   if (error === "missing_config") return "Supabase Auth is not configured.";
   if (error === "invalid_email") return "Enter a valid email address.";
   if (error === "reset_failed") return "Password reset could not be requested. Please try again.";
-  if (error === "missing_origin") return "Password reset links must use https://www.nosite.xyz. Ask an admin to check NEXT_PUBLIC_APP_URL in Vercel.";
+  if (error === "missing_origin") return "Password reset links need a configured app URL. Ask an admin to check NEXT_PUBLIC_APP_URL in Vercel.";
   if (error === "expired_link") return "That account link is expired or was already used. Request a fresh reset link and open only the newest email.";
   return null;
 }

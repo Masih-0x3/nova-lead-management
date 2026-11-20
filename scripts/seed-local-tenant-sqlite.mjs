@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // L-02 local seed: provisions a tenant on the SQLite compatibility runtime
-// (nosite-leads.db — the DATABASE_URL-absent path) through the canonical
+// (nova-leads.db — the DATABASE_URL-absent path) through the canonical
 // tenancy services so the member-facing /users and /tenancy surfaces are
 // exercisable in a browser. Idempotent: re-running replays journaled keys.
 //
@@ -9,7 +9,7 @@
 // Knobs (env):
 //   LOCAL_SEED_TENANT_SLUG        default local-dev
 //   LOCAL_SEED_TENANT_NAME        default "Local Development"
-//   LOCAL_SEED_OWNER_IDENTITY_ID  default L-01 admin auth id (admin@local.nosite.test)
+//   LOCAL_SEED_OWNER_IDENTITY_ID  default L-01 admin auth id (admin@nova.local)
 //   LOCAL_SEED_MEMBER_IDENTITY_ID default L-01 researcher auth id
 //   LOCAL_SEED_MEMBER=0           skip the second member
 //   LOCAL_SEED_ACCEPT=0           leave invitations issued for manual acceptance
@@ -49,7 +49,7 @@ if (build.status !== 0) {
   process.exit(build.status ?? 1);
 }
 
-// getDb() resolves nosite-leads.db from process.cwd() — pin it to the repo root.
+// getDb() resolves nova-leads.db from process.cwd() — pin it to the repo root.
 process.chdir(root);
 
 const driver = await import(pathToFileURL(outfile).href);

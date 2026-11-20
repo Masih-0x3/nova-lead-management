@@ -2,7 +2,7 @@
  * L-02 local operator driver — bundled by scripts/local-tenant-operator.mjs.
  *
  * Drives the platform-operator invitation operations against the local SQLite
- * compatibility runtime (nosite-leads.db, the DATABASE_URL-absent path) through
+ * compatibility runtime (nova-leads.db, the DATABASE_URL-absent path) through
  * the canonical services — the same way the seed drives provisionTenant:
  *
  *   status   <invitationId>                 — privacy-safe lifecycle view
@@ -93,7 +93,7 @@ async function memberSession(db: Awaited<ReturnType<typeof getDb>>, identityId: 
   }
   return {
     userId: identityId,
-    email: "operator@local.nosite.test",
+    email: "operator@nova.local",
     displayName: "Local Operator",
     tenantId: membership.tenant_id,
     workspaceId: null,

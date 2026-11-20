@@ -11,7 +11,7 @@ import { assertTenantPermission } from "@/lib/tenancy/authorize";
 import { runWithTenantContext } from "@/lib/tenancy/context";
 import { ExploreClient } from "./explore-client";
 
-export const metadata: Metadata = { title: "Lead Explorer | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Lead Explorer | Nova Lead Management" };
 
 interface Props {
   searchParams: Promise<ExploreParams>;
