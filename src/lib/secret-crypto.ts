@@ -31,9 +31,12 @@ export function decryptSecret(encrypted: string): string {
 }
 
 function getEncryptionKey(): Buffer {
-  const secret = process.env.NOSITE_ENCRYPTION_SECRET ?? process.env.NOSITE_SESSION_SECRET;
+  const secret = process.env.NOVA_ENCRYPTION_SECRET
+    ?? process.env.NOSITE_ENCRYPTION_SECRET
+    ?? process.env.NOVA_SESSION_SECRET
+    ?? process.env.NOSITE_SESSION_SECRET;
   if (!secret || secret.length < 16) {
-    throw new Error("NOSITE_ENCRYPTION_SECRET is required to encrypt API keys.");
+    throw new Error("NOVA_ENCRYPTION_SECRET is required to encrypt API keys.");
   }
   return createHash("sha256").update(secret).digest();
 }

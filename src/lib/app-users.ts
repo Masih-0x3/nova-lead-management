@@ -630,7 +630,7 @@ export async function ensureAppUserForAuthUser(userId: string, email: string): P
       .get<{ profile: unknown }>(
         userId,
         normalizedEmail,
-        normalizeEmail(process.env.NOSITE_BOOTSTRAP_ADMIN_EMAIL),
+        normalizeEmail(process.env.NOVA_BOOTSTRAP_ADMIN_EMAIL ?? process.env.NOSITE_BOOTSTRAP_ADMIN_EMAIL),
       );
     return parseSessionProfile(row?.profile);
   }
@@ -640,7 +640,7 @@ export async function ensureAppUserForAuthUser(userId: string, email: string): P
     return toSessionProfile(existing);
   }
 
-  const bootstrapEmail = normalizeEmail(process.env.NOSITE_BOOTSTRAP_ADMIN_EMAIL);
+  const bootstrapEmail = normalizeEmail(process.env.NOVA_BOOTSTRAP_ADMIN_EMAIL ?? process.env.NOSITE_BOOTSTRAP_ADMIN_EMAIL);
   const adminCount = await countAdminUsers();
   if (bootstrapEmail && normalizedEmail === bootstrapEmail && adminCount === 0) {
     const user = await createAppUserForAuthUser({

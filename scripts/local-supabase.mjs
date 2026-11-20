@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local Supabase stack orchestrator for Nova Trade (L-01).
+// Local Supabase stack orchestrator for Nova Lead Management (L-01).
 // Brings up a local-only supabase/postgres + gotrue + nginx gateway compose
 // stack, applies migrations, provisions restricted worker-lease roles, and
 // seeds a disposable local tenant identity. All secrets are local-only dummies
@@ -131,8 +131,8 @@ function ensureEnv() {
     NEXT_PUBLIC_SUPABASE_URL: GATEWAY_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: mintJwt(secret, "anon"),
     SUPABASE_SERVICE_ROLE_KEY: mintJwt(secret, "service_role"),
-    NOSITE_BOOTSTRAP_ADMIN_EMAIL: ADMIN_EMAIL,
-    NOSITE_ENCRYPTION_SECRET: randomBytes(24).toString("hex") + "0".repeat(8),
+    NOVA_BOOTSTRAP_ADMIN_EMAIL: env.NOSITE_BOOTSTRAP_ADMIN_EMAIL || ADMIN_EMAIL,
+    NOVA_ENCRYPTION_SECRET: env.NOSITE_ENCRYPTION_SECRET || randomBytes(24).toString("hex") + "0".repeat(8),
     WORKER_CRON_SECRET: `nova-local-cron-${randomBytes(16).toString("hex")}`,
     WORKER_ROUTE_TIMEOUT_MS: "45000",
     TENANT_WORKER_LEASE_ISSUER_DATABASE_URL: `postgresql://${CANONICAL_ISSUER_ROLE}:${env.LOCAL_WORKER_LEASE_ISSUER_PASSWORD || "nova-lease-issuer-local"}@127.0.0.1:${DB_PORT}/postgres`,

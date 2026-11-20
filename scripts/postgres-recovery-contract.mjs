@@ -12,7 +12,7 @@
 // ledger, platform extensions (pgcrypto/pg_net/pg_cron), and environment
 // variables are declared PG_RECOVERY_BOUNDARIES — restored by their owning
 // platform lane, never by this archive. The frozen v3/v4
-// "nosite-data-export" contract in data-transfer-contract.mjs keeps sole
+// "nova-data-export" contract in data-transfer-contract.mjs keeps sole
 // ownership of the legacy SQLite→Postgres portable lane; portable tables are
 // marked `portable` below to record that dual coverage.
 
@@ -224,7 +224,7 @@ export const PG_RECOVERY_BOUNDARIES = Object.freeze([
   }),
   Object.freeze({
     scope: "environment",
-    reason: "Environment secrets (NOSITE_ENCRYPTION_SECRET, JWT signing keys, WORKER_CRON_SECRET, provider keys) are deploy-time configuration, never archived.",
+    reason: "Environment secrets (NOVA_ENCRYPTION_SECRET, JWT signing keys, WORKER_CRON_SECRET, provider keys) are deploy-time configuration, never archived.",
   }),
 ]);
 

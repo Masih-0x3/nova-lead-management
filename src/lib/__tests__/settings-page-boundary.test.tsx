@@ -58,7 +58,7 @@ describe("platform settings page boundary", () => {
   it("labels loaded settings as platform-wide and keeps tenant policy separate", async () => {
     const markup = renderToStaticMarkup(await SettingsPage());
 
-    expect(metadata.title).toBe("Platform Settings | Nova Trade Lead Management");
+    expect(metadata.title).toBe("Platform Settings | Nova Lead Management");
     expect(markup).toContain("Platform-wide controls");
     expect(markup).toContain("Only platform settings administrators may view or change them.");
     expect(markup).toContain("Tenant-owned execution policy is resolved separately");

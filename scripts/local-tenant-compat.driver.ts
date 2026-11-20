@@ -3,7 +3,7 @@
  * scripts/local-tenant-compat.mjs.
  *
  * Exercises the T-028 legacy-row reconciliation end to end against a real
- * fixture file (`nosite-leads-legacy.db`, overridable via LOCAL_COMPAT_DB):
+ * fixture file (`nova-leads-legacy.db`, overridable via LOCAL_COMPAT_DB):
  *
  *   stage    — create a fresh legacy-shaped database: the full schema plus
  *              pre-tenancy rows that carry no tenant scope columns at all
@@ -39,7 +39,7 @@ import {
   type SqliteBackfillDb,
 } from "@/lib/tenancy/compatibility-backfill";
 
-const DB_PATH = process.env.LOCAL_COMPAT_DB ?? "nosite-leads-legacy.db";
+const DB_PATH = process.env.LOCAL_COMPAT_DB ?? "nova-leads-legacy.db";
 const SNAPSHOT_PATH = `${DB_PATH}.pre-backfill`;
 const IDEMPOTENCY_KEY = process.env.LOCAL_COMPAT_IDEM ?? "local-compat-backfill-v1";
 

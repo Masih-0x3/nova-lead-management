@@ -31,8 +31,8 @@ function snapshot(override: Partial<TenantLifecycleSnapshot> = {}): TenantLifecy
   const base: TenantLifecycleSnapshot = {
     tenant: {
       id: TENANT_ID,
-      slug: "nova-trade",
-      name: "Nova Trade",
+      slug: "nova-demo",
+      name: "Nova Demo",
       status: "active",
       locale: "en-US",
       timezone: "America/Denver",
@@ -171,7 +171,7 @@ describe("TenantLifecyclePanel", () => {
       <TenantLifecyclePanel state="ready" snapshot={snapshot()} authorizations={{ request_suspend: true }} onRequestSuspend={() => undefined} />,
     );
     expect(deniedHtml).toContain('data-tenant-lifecycle-state="unavailable"');
-    expect(deniedHtml).not.toContain("Nova Trade");
+    expect(deniedHtml).not.toContain("Nova Demo");
   });
 
   it("renders pending audit state without claiming a receipt or exposing transition machinery", () => {

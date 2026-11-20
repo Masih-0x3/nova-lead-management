@@ -1975,17 +1975,17 @@ describe("G-003 lead CRM tenant scope", () => {
 
         const priorRuntimeEnv = {
           databaseUrl: process.env.DATABASE_URL,
-          repair: process.env.NOSITE_RUNTIME_POSTGRES_REPAIR,
-          geography: process.env.NOSITE_RUNTIME_GEOGRAPHY_BACKFILL,
-          zipSeed: process.env.NOSITE_RUNTIME_ZIP_SEED,
+          repair: process.env.NOVA_RUNTIME_POSTGRES_REPAIR,
+          geography: process.env.NOVA_RUNTIME_GEOGRAPHY_BACKFILL,
+          zipSeed: process.env.NOVA_RUNTIME_ZIP_SEED,
           databaseSsl: process.env.DATABASE_SSL,
         };
         let resetRuntimeDb: (() => Promise<void>) | undefined;
         try {
           process.env.DATABASE_URL = url;
-          process.env.NOSITE_RUNTIME_POSTGRES_REPAIR = "1";
-          process.env.NOSITE_RUNTIME_GEOGRAPHY_BACKFILL = "0";
-          process.env.NOSITE_RUNTIME_ZIP_SEED = "0";
+          process.env.NOVA_RUNTIME_POSTGRES_REPAIR = "1";
+          process.env.NOVA_RUNTIME_GEOGRAPHY_BACKFILL = "0";
+          process.env.NOVA_RUNTIME_ZIP_SEED = "0";
           process.env.DATABASE_SSL = "disable";
           const dbModule = await import("@/lib/db/index");
           resetRuntimeDb = dbModule.resetDbClient;
@@ -2004,12 +2004,12 @@ describe("G-003 lead CRM tenant scope", () => {
           await resetRuntimeDb?.();
           if (priorRuntimeEnv.databaseUrl === undefined) delete process.env.DATABASE_URL;
           else process.env.DATABASE_URL = priorRuntimeEnv.databaseUrl;
-          if (priorRuntimeEnv.repair === undefined) delete process.env.NOSITE_RUNTIME_POSTGRES_REPAIR;
-          else process.env.NOSITE_RUNTIME_POSTGRES_REPAIR = priorRuntimeEnv.repair;
-          if (priorRuntimeEnv.geography === undefined) delete process.env.NOSITE_RUNTIME_GEOGRAPHY_BACKFILL;
-          else process.env.NOSITE_RUNTIME_GEOGRAPHY_BACKFILL = priorRuntimeEnv.geography;
-          if (priorRuntimeEnv.zipSeed === undefined) delete process.env.NOSITE_RUNTIME_ZIP_SEED;
-          else process.env.NOSITE_RUNTIME_ZIP_SEED = priorRuntimeEnv.zipSeed;
+          if (priorRuntimeEnv.repair === undefined) delete process.env.NOVA_RUNTIME_POSTGRES_REPAIR;
+          else process.env.NOVA_RUNTIME_POSTGRES_REPAIR = priorRuntimeEnv.repair;
+          if (priorRuntimeEnv.geography === undefined) delete process.env.NOVA_RUNTIME_GEOGRAPHY_BACKFILL;
+          else process.env.NOVA_RUNTIME_GEOGRAPHY_BACKFILL = priorRuntimeEnv.geography;
+          if (priorRuntimeEnv.zipSeed === undefined) delete process.env.NOVA_RUNTIME_ZIP_SEED;
+          else process.env.NOVA_RUNTIME_ZIP_SEED = priorRuntimeEnv.zipSeed;
           if (priorRuntimeEnv.databaseSsl === undefined) delete process.env.DATABASE_SSL;
           else process.env.DATABASE_SSL = priorRuntimeEnv.databaseSsl;
         }
