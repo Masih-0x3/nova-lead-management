@@ -141,6 +141,16 @@ describe("/api/health", () => {
     expect((await response.json()).status).toBe("ok");
   });
 
+  it.each(["https://example.com?", "https://example.com#", "https://user:pass@example.com", "https://example.com/a/.."])(
+    "degrades for non-origin NEXT_PUBLIC_APP_URL %s",
+    async (value) => {
+      process.env.NEXT_PUBLIC_APP_URL = value;
+      const response = await GET(new Request("https://example.com/api/health"));
+
+      expect((await response.json()).status).toBe("degraded");
+    },
+  );
+
   it("degrades when NEXT_PUBLIC_APP_URL includes a path on the request host", async () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://example.com/app";
     const response = await GET(new Request("https://example.com/api/health"));

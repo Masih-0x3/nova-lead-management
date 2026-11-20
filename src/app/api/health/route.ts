@@ -161,9 +161,8 @@ function getRequestOrigin(request?: Request): string | null {
 
 function isSameOrigin(configured: string, requestOrigin: string): boolean {
   try {
-    const configuredUrl = new URL(configured);
-    if (configuredUrl.pathname !== "/" || configuredUrl.search || configuredUrl.hash) return false;
-    return configuredUrl.origin === new URL(requestOrigin).origin;
+    if (!/^https?:\/\/[^/?#@]+$/i.test(configured)) return false;
+    return new URL(configured).origin === new URL(requestOrigin).origin;
   } catch {
     return false;
   }
