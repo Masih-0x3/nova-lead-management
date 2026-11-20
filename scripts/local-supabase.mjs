@@ -510,9 +510,9 @@ async function verify() {
   checks.push(["issuer no lease table privs", q(`SELECT NOT has_table_privilege('${CANONICAL_ISSUER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${CANONICAL_ISSUER_ROLE}','public.tenant_worker_dispatch_leases','INSERT')`)]);
   checks.push(["resolver no lease table privs", q(`SELECT NOT has_table_privilege('${CANONICAL_RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','SELECT') AND NOT has_table_privilege('${CANONICAL_RESOLVER_ROLE}','public.tenant_worker_dispatch_leases','UPDATE')`)]);
   checks.push(["auth users", q(`SELECT count(*) >= 2 FROM auth.users`)]);
-  // seed-local-tenant.mjs seeds slug `local-demo` (LOCAL_TENANT_SLUG); a
-  // legacy data import may use `nova-local`. NOVA_VERIFY_TENANT_SLUG overrides.
-  const seedSlug = process.env.NOVA_VERIFY_TENANT_SLUG ?? (process.env.LOCAL_TENANT_SLUG ?? "local-demo").trim().toLowerCase();
+  // Mirrors the slug scripts/seed-local-tenant.mjs seeds (LOCAL_TENANT_SLUG,
+  // default `local-demo`). NOVA_VERIFY_TENANT_SLUG overrides explicitly.
+  const seedSlug = (process.env.NOVA_VERIFY_TENANT_SLUG ?? process.env.LOCAL_TENANT_SLUG ?? "local-demo").trim().toLowerCase();
   checks.push(["tenant seeded", q(`SELECT status='active' FROM public.tenants WHERE slug='${seedSlug}'`)]);
   if (process.env.NOVA_SKIP_DEMO_SEED !== "1") {
     checks.push(["demo leads seeded", q(`SELECT count(*) >= 25 FROM public.leads l JOIN public.tenants t ON t.id = l.tenant_id WHERE t.slug='${seedSlug}' AND l.id LIKE 'de000000-0000-4000-8000-%'`)]);
