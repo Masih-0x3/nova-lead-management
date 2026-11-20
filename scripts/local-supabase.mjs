@@ -308,8 +308,21 @@ function roles() {
   log("restricted lease roles provisioned via scripts/seed-local-tenant.mjs");
 }
 
+// Demo dataset (Colorado trades leads, outreach, crawl runs) on top of the
+// tenant foundation so Explorer/Workbench/Statistics/Scheduler render data.
+// Skip with NOVA_SKIP_DEMO_SEED=1.
+function runDemoSeed() {
+  if (process.env.NOVA_SKIP_DEMO_SEED === "1") return;
+  const res = sh("node", [join(ROOT, "scripts", "seed-demo-leads.mjs")], {
+    pipe: false,
+    env: { ...process.env, DATABASE_URL: DB_SUPER_URL },
+  });
+  if (res.status !== 0) process.exit(res.status ?? 1);
+}
+
 async function seed() {
   runCanonicalSeed();
+  runDemoSeed();
 }
 
 // ---------- disposable PG16 rehearsal cluster ----------
@@ -501,6 +514,9 @@ async function verify() {
   // default `local-demo`). NOVA_VERIFY_TENANT_SLUG overrides explicitly.
   const seedSlug = (process.env.NOVA_VERIFY_TENANT_SLUG ?? process.env.LOCAL_TENANT_SLUG ?? "local-demo").trim().toLowerCase();
   checks.push(["tenant seeded", q(`SELECT status='active' FROM public.tenants WHERE slug='${seedSlug}'`)]);
+  if (process.env.NOVA_SKIP_DEMO_SEED !== "1") {
+    checks.push(["demo leads seeded", q(`SELECT count(*) >= 25 FROM public.leads l JOIN public.tenants t ON t.id = l.tenant_id WHERE t.slug='${seedSlug}' AND l.id LIKE 'de000000-0000-4000-8000-%'`)]);
+  }
   checks.push(["app_users seeded", q(`SELECT count(*) >= 2 FROM public.app_users`)]);
   try {
     const r = await fetch(`${GATEWAY_URL}/auth/v1/health`);

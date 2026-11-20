@@ -68,7 +68,7 @@ export async function loadSurface<T>(options: SurfaceLoadOptions<T>): Promise<Su
   try {
     const data = await runWithTenantContext(
       session,
-      `l07:${options.route}:${randomUUID()}`,
+      `l07:${options.route.replace(/[^A-Za-z0-9._:/-]/g, "_")}:${randomUUID()}`,
       () => withTenantDbContext(async (db) => {
         await gateL05Policy(session, db, options.permission, {
           workspaceId: session.workspaceId,
