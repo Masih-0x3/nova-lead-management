@@ -8,11 +8,11 @@ Requires Node 24 (`.nvmrc`) and Docker.
 
 ```bash
 npm ci
-node scripts/local-supabase.mjs all   # local Supabase + migrations + seeded tenant; writes .env.local
+node scripts/local-supabase.mjs all   # fresh checkout only: local Supabase + migrations + seed; rewrites .env.local
 npm run dev                           # http://localhost:3000
 ```
 
-Sign in as `admin@nova.local` (or `researcher@nova.local`). Passwords are in `.env.local` as `LOCAL_ADMIN_PASSWORD` / `LOCAL_RESEARCHER_PASSWORD`. Configuration reference: [`.env.example`](.env.example). Missing configuration fails closed by design.
+Sign in as `admin@nova.local` (or `researcher@nova.local`). Passwords are in `.env.local` as `LOCAL_ADMIN_PASSWORD` / `LOCAL_RESEARCHER_PASSWORD`. Configuration reference: [`.env.example`](.env.example). Missing configuration fails closed by design. On an existing setup, use `node scripts/local-supabase.mjs up` instead of `all` ([details](docs/TESTING.md)).
 
 ## Commands
 
