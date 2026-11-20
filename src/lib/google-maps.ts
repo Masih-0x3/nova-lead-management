@@ -1,4 +1,4 @@
-export const GOOGLE_MAPS_SCRIPT_ID = "nosite-google-maps-js";
+export const GOOGLE_MAPS_SCRIPT_ID = "nova-google-maps-js";
 
 export function hasGoogleMapsBrowserKey(apiKey: string | null | undefined): apiKey is string {
   return Boolean(apiKey?.trim());

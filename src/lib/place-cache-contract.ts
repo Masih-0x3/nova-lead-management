@@ -1,4 +1,6 @@
-export const PLACE_CACHE_METADATA_KEY = "__nositeCache";
+export const PLACE_CACHE_METADATA_KEY = "__novaCache";
+// Pre-rebrand key still present in persisted raw_json rows.
+export const LEGACY_PLACE_CACHE_METADATA_KEY = "__nositeCache";
 
 export interface CachedReviewInsights {
   keywords: string[];
@@ -17,7 +19,7 @@ export function readPlaceCacheMetadata(
   value: Record<string, unknown> | null | undefined,
 ): PlaceCacheMetadata | null {
   if (!value) return null;
-  const raw = value[PLACE_CACHE_METADATA_KEY];
+  const raw = value[PLACE_CACHE_METADATA_KEY] ?? value[LEGACY_PLACE_CACHE_METADATA_KEY];
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
 
   const candidate = raw as Record<string, unknown>;

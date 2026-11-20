@@ -208,7 +208,7 @@ export function DashboardClient({
   const selectedCrawlWorkspace = crawlWorkspaces.find((workspace) => workspace.workspaceId === selectedWorkspaceId) ?? null;
 
   useEffect(() => {
-    document.title = "Admin Command Center | Nova Trade Lead Management";
+    document.title = "Admin Command Center | Nova Lead Management";
   }, []);
 
   const loadCoreStats = useCallback(async () => {

@@ -18,7 +18,7 @@ import { assertTenantPermission } from "@/lib/tenancy/authorize";
 import { runWithTenantContext } from "@/lib/tenancy/context";
 import { FulfillmentClient } from "./fulfillment-client";
 
-export const metadata: Metadata = { title: "Fulfillment | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Fulfillment | Nova Lead Management" };
 
 interface Props {
   searchParams: Promise<{

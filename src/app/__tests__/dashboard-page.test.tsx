@@ -33,7 +33,7 @@ const queryMocks = vi.hoisted(() => ({
     auth: {
       appUrlConfigured: true,
       supabaseUrlConfigured: true,
-      callbackUrl: "https://www.nosite.xyz/auth/callback",
+      callbackUrl: "https://app.example.test/auth/callback",
       warnings: [],
     },
   })),

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const brandAssetPaths = [
-  "public/icons/nosite-logo.svg",
+  "public/icons/nova-logo.svg",
   "public/icons/favicon-16x16.png",
   "public/icons/favicon-32x32.png",
   "public/icons/favicon-48x48.png",
@@ -33,9 +33,9 @@ describe("brand assets", () => {
     const brandMark = readFileSync(join(process.cwd(), "src/components/brand-mark.tsx"), "utf8");
 
     expect(layout).toContain('manifest: "/site.webmanifest"');
-    expect(layout).toContain('url: "/icons/nosite-logo.svg"');
+    expect(layout).toContain('url: "/icons/nova-logo.svg"');
     expect(layout).toContain('url: "/icons/apple-touch-icon.png"');
-    expect(brandMark).toContain('src="/icons/nosite-logo.svg"');
+    expect(brandMark).toContain('src="/icons/nova-logo.svg"');
     expect(navHeader).toContain("<BrandMark />");
     expect(loginPage).toContain('<BrandMark size="login"');
     expect(navHeader).not.toContain('<path d="M12 2L2 7l10 5 10-5-10-5z"');

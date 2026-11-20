@@ -10,7 +10,7 @@ import { assertTenantPermission } from "@/lib/tenancy/authorize";
 import { runWithTenantContext } from "@/lib/tenancy/context";
 import { QueueClient } from "./queue-client";
 
-export const metadata: Metadata = { title: "Workbench | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Workbench | Nova Lead Management" };
 
 export default async function QueuePage() {
   const logRouteTiming = startRouteTiming("/queue");

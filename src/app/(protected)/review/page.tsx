@@ -12,7 +12,7 @@ import { getTenantSession } from "@/lib/auth";
 import { loadSurface, SurfaceNotice } from "../_lib/surface";
 import { ReviewWorkspace } from "./workspace";
 
-export const metadata: Metadata = { title: "Review | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Review | Nova Lead Management" };
 
 const DESCRIPTION = "Human review queue for resolutions, qualification, and buying centers.";
 

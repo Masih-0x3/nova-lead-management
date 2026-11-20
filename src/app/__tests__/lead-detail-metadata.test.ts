@@ -103,10 +103,10 @@ describe("lead detail metadata access", () => {
     queryMocks.userCanAccessMarket.mockResolvedValue(true);
 
     await expect(generateMetadata({ params: Promise.resolve({ id: "lead-1" }) })).resolves.toEqual({
-      title: "Private Candidate | Nova Trade Lead Management",
+      title: "Private Candidate | Nova Lead Management",
     });
     await expect(generateMetadata({ params: Promise.resolve({ id: "lead-1" }) })).resolves.toEqual({
-      title: "Private Candidate | Nova Trade Lead Management",
+      title: "Private Candidate | Nova Lead Management",
     });
     expect(authMocks.requirePermission).toHaveBeenCalledWith("view:workspace");
     expect(authMocks.getTenantSession).toHaveBeenCalledWith({});
@@ -127,7 +127,7 @@ describe("lead detail metadata access", () => {
     queryMocks.getLeadById.mockResolvedValue(lead);
 
     await expect(generateMetadata({ params: Promise.resolve({ id: "lead-1" }) })).resolves.toEqual({
-      title: "Lead | Nova Trade Lead Management",
+      title: "Lead | Nova Lead Management",
     });
     expect(queryMocks.userCanAccessMarket).not.toHaveBeenCalled();
   });
@@ -138,7 +138,7 @@ describe("lead detail metadata access", () => {
     queryMocks.userCanAccessMarket.mockResolvedValue(false);
 
     await expect(generateMetadata({ params: Promise.resolve({ id: "lead-1" }) })).resolves.toEqual({
-      title: "Lead | Nova Trade Lead Management",
+      title: "Lead | Nova Lead Management",
     });
     expect(queryMocks.userCanAccessMarket).toHaveBeenCalledWith("researcher-1", "market-uk");
   });
@@ -148,7 +148,7 @@ describe("lead detail metadata access", () => {
     queryMocks.getLeadById.mockResolvedValue(null);
 
     await expect(generateMetadata({ params: Promise.resolve({ id: "missing" }) })).resolves.toEqual({
-      title: "Lead | Nova Trade Lead Management",
+      title: "Lead | Nova Lead Management",
     });
     expect(queryMocks.userCanAccessMarket).not.toHaveBeenCalled();
   });
@@ -158,7 +158,7 @@ describe("lead detail metadata access", () => {
     authMocks.getTenantSession.mockResolvedValue({ ...tenantSession, userId: "another-user" });
 
     await expect(generateMetadata({ params: Promise.resolve({ id: "lead-1" }) })).resolves.toEqual({
-      title: "Lead | Nova Trade Lead Management",
+      title: "Lead | Nova Lead Management",
     });
 
     expect(queryMocks.ensureDbReady).not.toHaveBeenCalled();
@@ -173,10 +173,10 @@ describe("lead detail metadata access", () => {
       .mockResolvedValueOnce({ ...activeOwnedLead, tenant_id: "foreign-tenant" });
 
     await expect(generateMetadata({ params: Promise.resolve({ id: "missing" }) })).resolves.toEqual({
-      title: "Lead | Nova Trade Lead Management",
+      title: "Lead | Nova Lead Management",
     });
     await expect(generateMetadata({ params: Promise.resolve({ id: "foreign" }) })).resolves.toEqual({
-      title: "Lead | Nova Trade Lead Management",
+      title: "Lead | Nova Lead Management",
     });
     expect(queryMocks.userCanAccessMarket).not.toHaveBeenCalled();
   });

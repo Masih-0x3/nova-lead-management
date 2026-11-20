@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
   outputFileTracingExcludes: {
     "/*": [
       "./.env*", "./.git/**/*", "./.auth/**/*", "./.data/**/*",
-      "./nosite-leads.db*", "./supabase/local/certs/**/*",
+      "./nova-leads.db*", "./nosite-leads.db*", "./supabase/local/certs/**/*",
       "./staging-artifacts/**/*", "./data-export/**/*",
       "./test-results/**/*", "./playwright-report/**/*",
     ],

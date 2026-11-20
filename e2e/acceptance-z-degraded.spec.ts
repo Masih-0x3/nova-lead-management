@@ -418,7 +418,7 @@ test("L-08 degraded paths: isolation, lease gating, kill switches, recovery, ide
       cronSecret,
       "acceptance-admin-local",
       "acceptance-approver-local",
-      process.env.NOSITE_ENCRYPTION_SECRET?.trim() ?? "",
+      (process.env.NOVA_ENCRYPTION_SECRET ?? process.env.NOSITE_ENCRYPTION_SECRET)?.trim() ?? "",
       process.env.DATABASE_URL?.trim() ?? "",
     ].filter((value) => value.length > 0);
     expect(secrets.length).toBeGreaterThan(0);

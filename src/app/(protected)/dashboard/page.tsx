@@ -12,7 +12,7 @@ import { listCrawlWorkspaceOptions } from "@/lib/crawl/workspace-scope";
 import type { CrawlWorkspaceOption } from "@/lib/crawl/workspace-scope";
 import { DashboardClient } from "./dashboard-client";
 
-export const metadata: Metadata = { title: "Admin Command Center | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Admin Command Center | Nova Lead Management" };
 
 export default async function DashboardPage() {
   const logRouteTiming = startRouteTiming("/dashboard");

@@ -24,7 +24,7 @@ import {
 import { TenantAuthorizationError } from "@/lib/tenancy/authorize";
 import { loadSurface, SurfaceNotice, PendingSeamNotice } from "../_lib/surface";
 
-export const metadata: Metadata = { title: "Setup | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Setup | Nova Lead Management" };
 
 const ONBOARDING_STEPS = [
   { id: "scope", label: "Scope" },

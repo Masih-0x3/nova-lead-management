@@ -84,7 +84,7 @@ const supportedFiles = [
     label: "CSV",
     fileName: "targets.csv",
     mediaType: "text/csv",
-    bytes: bytes("name,company\nAda,Nova Trade\n"),
+    bytes: bytes("name,company\nAda,Nova Demo\n"),
     format: "csv",
   },
   {
@@ -223,7 +223,7 @@ describe("document intake validation", () => {
   });
 
   it("rejects an extension and MIME mismatch before accepting bytes", () => {
-    const content = bytes("name,company\nAda,Nova Trade\n");
+    const content = bytes("name,company\nAda,Nova Demo\n");
 
     expect(() =>
       validateDocumentFile({

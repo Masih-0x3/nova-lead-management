@@ -32,7 +32,7 @@ export function BrandMark({ size = "nav", className = "", priority = false }: Br
       data-brand-mark
     >
       <Image
-        src="/icons/nosite-logo.svg"
+        src="/icons/nova-logo.svg"
         alt=""
         width={config.image}
         height={config.image}

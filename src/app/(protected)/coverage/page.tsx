@@ -6,7 +6,7 @@ import { listCrawlWorkspaceOptions } from "@/lib/crawl/workspace-scope";
 import type { CrawlWorkspaceOption } from "@/lib/crawl/workspace-scope";
 import { CoverageClient } from "./coverage-client";
 
-export const metadata: Metadata = { title: "Coverage | Nova Trade Lead Management" };
+export const metadata: Metadata = { title: "Coverage | Nova Lead Management" };
 
 type CoverageSearchParams = { run?: string | string[]; workspace?: string | string[] };
 

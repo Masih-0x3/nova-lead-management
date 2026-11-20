@@ -80,7 +80,7 @@ interface GoogleMapsNamespace {
 declare global {
   interface Window {
     google?: GoogleMapsNamespace;
-    __nositeGoogleMapsReady?: () => void;
+    __novaGoogleMapsReady?: () => void;
   }
 }
 
@@ -1317,14 +1317,14 @@ function loadGoogleMaps(apiKey: string): Promise<GoogleMapsNamespace> {
 
   if (!googleMapsLoadPromise) {
     googleMapsLoadPromise = new Promise((resolve, reject) => {
-      const callbackName = "__nositeGoogleMapsReady";
+      const callbackName = "__novaGoogleMapsReady";
       const existingScript = document.getElementById(GOOGLE_MAPS_SCRIPT_ID);
       const timeoutId = window.setTimeout(() => {
         googleMapsLoadPromise = null;
         reject(new Error("Google Maps timed out."));
       }, 15000);
 
-      window.__nositeGoogleMapsReady = () => {
+      window.__novaGoogleMapsReady = () => {
         window.clearTimeout(timeoutId);
         if (window.google?.maps) resolve(window.google);
         else {
