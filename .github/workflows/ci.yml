@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   release-check:
+    # Playwright 1.58 cannot install Chromium on ubuntu-latest (26.04).
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -153,6 +154,7 @@ jobs:
   staging-rehearsal:
     name: Isolated staging rehearsal (Supabase + Next production)
     needs: [release-check, postgres-disposable, postgres-selfprovisioning-suites, l02-tenant-ops-postgres, document-real-services]
+    # Playwright 1.58 cannot install Chromium on ubuntu-latest (26.04).
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: staging
