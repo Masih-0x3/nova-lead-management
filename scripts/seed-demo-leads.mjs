@@ -25,6 +25,8 @@ const TENANT_ID = "10000000-0000-4000-8000-000000000001";
 const ADMIN_ID = "12000000-0000-4000-8000-000000000001";
 const RESEARCHER_ID = "12000000-0000-4000-8000-000000000002";
 const MARKET_ID = "market-colorado";
+// Lead ids are deterministic UUIDs: lead actions validate ids with z.string().uuid().
+const DEMO_LEAD_ID_PREFIX = "de000000-0000-4000-8000-";
 
 const CITIES = [
   { locality: "Denver", postal: "80205", lat: 39.7392, lng: -104.9903, area: "303" },
@@ -100,7 +102,7 @@ const round = (n, digits = 1) => Math.round(n * 10 ** digits) / 10 ** digits;
 function buildLead([name, trade, cityIndex, websiteStatus, status, assigned], index) {
   const city = CITIES[cityIndex];
   const spec = TRADES[trade];
-  const id = `demo-lead-${pad(index + 1)}`;
+  const id = `${DEMO_LEAD_ID_PREFIX}${String(index + 1).padStart(12, "0")}`;
   const seed = (index * 37 + 11) % 100;
   const rank = STATUS_RANK[status];
   const noSite = websiteStatus === "none" || websiteStatus === "social";
@@ -249,8 +251,10 @@ async function main() {
     await sql.begin(async (tx) => {
       if (reset) {
         await tx`DELETE FROM public.crawl_runs WHERE tenant_id = ${TENANT_ID} AND id LIKE 'demo-%'`;
-        await tx`DELETE FROM public.leads WHERE tenant_id = ${TENANT_ID} AND id LIKE 'demo-%'`;
+        await tx`DELETE FROM public.leads WHERE tenant_id = ${TENANT_ID} AND id LIKE ${`${DEMO_LEAD_ID_PREFIX}%`}`;
       }
+      // Earlier revisions of this seed used non-UUID `demo-lead-NNN` ids.
+      await tx`DELETE FROM public.leads WHERE tenant_id = ${TENANT_ID} AND id LIKE 'demo-lead-%'`;
 
       for (const lead of leads) {
         const columns = Object.keys(lead);
@@ -327,7 +331,7 @@ async function main() {
 
     const [counts] = await sql`
       SELECT
-        (SELECT count(*) FROM public.leads WHERE tenant_id = ${TENANT_ID} AND id LIKE 'demo-%')::int AS leads,
+        (SELECT count(*) FROM public.leads WHERE tenant_id = ${TENANT_ID} AND id LIKE ${`${DEMO_LEAD_ID_PREFIX}%`})::int AS leads,
         (SELECT count(*) FROM public.leads WHERE tenant_id = ${TENANT_ID} AND assigned_to_user_id = ${RESEARCHER_ID})::int AS assigned,
         (SELECT count(*) FROM public.outreach_events WHERE tenant_id = ${TENANT_ID} AND id LIKE 'demo-%')::int AS outreach,
         (SELECT count(*) FROM public.lead_notes WHERE tenant_id = ${TENANT_ID} AND id LIKE 'demo-%')::int AS notes,

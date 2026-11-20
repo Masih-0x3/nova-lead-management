@@ -512,7 +512,7 @@ async function verify() {
   const seedSlug = process.env.NOVA_VERIFY_TENANT_SLUG ?? process.env.LOCAL_TENANT_SLUG ?? "local-demo";
   checks.push(["tenant seeded", q(`SELECT status='active' FROM public.tenants WHERE slug='${seedSlug}'`)]);
   if (process.env.NOVA_SKIP_DEMO_SEED !== "1") {
-    checks.push(["demo leads seeded", q(`SELECT count(*) >= 25 FROM public.leads l JOIN public.tenants t ON t.id = l.tenant_id WHERE t.slug='${seedSlug}' AND l.id LIKE 'demo-lead-%'`)]);
+    checks.push(["demo leads seeded", q(`SELECT count(*) >= 25 FROM public.leads l JOIN public.tenants t ON t.id = l.tenant_id WHERE t.slug='${seedSlug}' AND l.id LIKE 'de000000-0000-4000-8000-%'`)]);
   }
   checks.push(["app_users seeded", q(`SELECT count(*) >= 2 FROM public.app_users`)]);
   try {
