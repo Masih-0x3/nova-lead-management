@@ -159,9 +159,14 @@ function sameStringArray(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function defaultSqliteDbPath() {
+  if (!fs.existsSync("nova-leads.db") && fs.existsSync("nosite-leads.db")) return "nosite-leads.db";
+  return "nova-leads.db";
+}
+
 function main() {
   const args = parseCliArgs(process.argv.slice(2));
-  const dbPath = String(args.get("db") ?? "nosite-leads.db");
+  const dbPath = String(args.get("db") ?? defaultSqliteDbPath());
   const outDir = String(args.get("out") ?? "data-export");
   const rawSchemaVersion = args.get("schema-version") ?? DATA_EXPORT_SCHEMA_VERSION;
   const schemaVersion = Number(rawSchemaVersion);

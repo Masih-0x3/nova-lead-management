@@ -2,7 +2,7 @@
  * L-02 local seed driver — bundled by scripts/seed-local-tenant-sqlite.mjs.
  *
  * Drives the canonical tenancy services against the local SQLite compatibility
- * runtime (nosite-leads.db, the DATABASE_URL-absent path) so the member-facing
+ * runtime (nova-leads.db, the DATABASE_URL-absent path) so the member-facing
  * surfaces under /users and /tenancy are exercisable in a browser:
  *
  *   1. provisionTenant         — operator path; pending tenant + owner invite
@@ -71,7 +71,7 @@ export function loadConfig(): LocalSeedConfig {
     tenantSlug: env("LOCAL_SEED_TENANT_SLUG", "local-dev"),
     tenantName: env("LOCAL_SEED_TENANT_NAME", "Local Development"),
     ownerIdentityId: env("LOCAL_SEED_OWNER_IDENTITY_ID", L01_ADMIN_IDENTITY),
-    ownerEmail: env("LOCAL_SEED_OWNER_EMAIL", "admin@local.nosite.test"),
+    ownerEmail: env("LOCAL_SEED_OWNER_EMAIL", "admin@nova.local"),
     // Two-person deletion governance needs three distinct actors:
     // requester (owner), verifier (owner/admin != requester), approver
     // (owner != requester and != verifier). The verifier defaults to admin
@@ -79,7 +79,7 @@ export function loadConfig(): LocalSeedConfig {
     members: [
       {
         identityId: env("LOCAL_SEED_MEMBER_IDENTITY_ID", L01_RESEARCHER_IDENTITY),
-        email: env("LOCAL_SEED_MEMBER_EMAIL", "researcher@local.nosite.test"),
+        email: env("LOCAL_SEED_MEMBER_EMAIL", "researcher@nova.local"),
         role: env("LOCAL_SEED_MEMBER_ROLE", "admin") as LaunchRole,
         appRole: "researcher",
         displayName: "Local Researcher",
@@ -87,7 +87,7 @@ export function loadConfig(): LocalSeedConfig {
       },
       {
         identityId: env("LOCAL_SEED_APPROVER_IDENTITY_ID", L01_APPROVER_IDENTITY),
-        email: env("LOCAL_SEED_APPROVER_EMAIL", "approver@local.nosite.test"),
+        email: env("LOCAL_SEED_APPROVER_EMAIL", "approver@nova.local"),
         role: "admin" as LaunchRole,
         appRole: "admin",
         displayName: "Local Approver",
@@ -217,13 +217,20 @@ export async function main(): Promise<void> {
   // grant request resolves supportPrincipalRef against this registry and
   // fails closed without one. Platform-global config (like the local
   // operator identity), not tenant state; replay-safe via OR IGNORE.
-  const supportReference = env("LOCAL_SEED_SUPPORT_REFERENCE", "support@local.nosite.test");
+  const supportReference = env("LOCAL_SEED_SUPPORT_REFERENCE", "support@nova.local");
   const supportIdentityId = env("LOCAL_SEED_SUPPORT_IDENTITY_ID", L01_SUPPORT_IDENTITY);
   const principal = await db
     .prepare("INSERT OR IGNORE INTO platform_support_principals (reference, auth_identity_id, status) VALUES (?, ?, 'active')")
     .run(supportReference, supportIdentityId);
   if (principal.changes === 1) {
     console.log(`[seed] platform_support_principals ${supportReference} -> ${supportIdentityId}`);
+  } else {
+    const existing = await db
+      .prepare("SELECT reference FROM platform_support_principals WHERE auth_identity_id = ?")
+      .get(supportIdentityId) as { reference: string } | undefined;
+    if (existing && existing.reference !== supportReference) {
+      console.warn(`[seed] support identity ${supportIdentityId} is already registered as ${existing.reference}; use that reference or reset the local database to register ${supportReference}.`);
+    }
   }
 
   // The provisioned tenant_policies baseline is restrictive-by-default.

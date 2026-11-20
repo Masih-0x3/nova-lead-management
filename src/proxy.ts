@@ -226,6 +226,7 @@ function getRouteAlias(pathname: string): string | null {
     "/run-monitor": "/coverage",
     "/run monitor": "/coverage",
     "/monitor": "/coverage",
+    // Legacy pre-rebrand page name kept so old links still redirect.
     "/nosite leads": "/dashboard",
     "/stats": "/statistics",
     "/statistic": "/statistics",

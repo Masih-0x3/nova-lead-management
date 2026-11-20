@@ -326,7 +326,7 @@ describe("data recovery contract", () => {
   });
 
   it("fails clearly for an unprepared source and exposes all new Auth references", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nosite-unprepared-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nova-unprepared-"));
     temporaryDirectories.push(root);
     const dbPath = path.join(root, "source.db");
     const db = new Database(dbPath);
@@ -515,7 +515,7 @@ describe("data recovery contract", () => {
 });
 
 function assertLocaleIndependentUniqueKeyOrdering() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nosite-key-order-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nova-key-order-"));
   temporaryDirectories.push(root);
   const db = new Database(path.join(root, "order.db"));
   try {
@@ -712,7 +712,7 @@ function readOnlyNullWorkspaceGrantCount(dbPath: string) {
 }
 
 function createSyntheticSqliteDatabase({ schema4 = true } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nosite-data-recovery-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nova-data-recovery-"));
   temporaryDirectories.push(root);
   const dbPath = path.join(root, "source.db");
   const outDir = path.join(root, "export");

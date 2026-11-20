@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // L-02 local operator surface: drives the platform-operator invitation
 // operations (status / reissue / revoke) plus a member-actor `invite`
-// convenience on the SQLite compatibility runtime (nosite-leads.db — the
+// convenience on the SQLite compatibility runtime (nova-leads.db — the
 // DATABASE_URL-absent path) through the canonical tenancy services. Every op
 // is journaled/idempotent — re-running a command replays the recorded result.
 //
@@ -53,7 +53,7 @@ if (build.status !== 0) {
   process.exit(build.status ?? 1);
 }
 
-// getDb() resolves nosite-leads.db from process.cwd() — pin it to the repo root.
+// getDb() resolves nova-leads.db from process.cwd() — pin it to the repo root.
 process.chdir(root);
 
 const driver = await import(pathToFileURL(outfile).href);
