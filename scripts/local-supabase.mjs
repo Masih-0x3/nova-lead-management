@@ -150,6 +150,9 @@ function ensureEnv() {
     if (!env[k]) { env[k] = v; changed = true; }
     lines.push(`${k}=${env[k]}`);
   }
+  for (const [k, v] of Object.entries(env)) {
+    if (!(k in defaults)) lines.push(`${k}=${v}`);
+  }
   if (changed || !existsSync(ENV_LOCAL)) {
     writeFileSync(ENV_LOCAL, lines.join("\n") + "\n", { mode: 0o600 });
     log("wrote .env.local with local-only values");
