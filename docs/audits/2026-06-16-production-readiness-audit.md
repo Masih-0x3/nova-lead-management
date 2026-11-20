@@ -1,4 +1,4 @@
-# NoSite Leads Production Readiness Audit
+# Nova Lead Management Production Readiness Audit
 
 Date: 2026-06-16
 Repo: `/Users/stevmq/lead-generation`
@@ -9,7 +9,7 @@ Live health commit: `59f8bf0bf75a`
 
 ## Verdict
 
-NoSite Leads is close to a controlled invite-only operator launch. It is not ready for a broad public launch yet.
+Nova Lead Management is close to a controlled invite-only operator launch. It is not ready for a broad public launch yet.
 
 The blockers are not signup or billing. The real public-launch gaps are:
 
@@ -409,7 +409,7 @@ Evidence:
 - Demo creation sets `is_published = 1` immediately: `src/lib/db/queries.ts:8380-8383`.
 - Published lookup only checks `slug` and `is_published = 1`: `src/lib/db/queries.ts:8388-8404`.
 - Lead detail can create/copy demo links: `src/app/(protected)/leads/[id]/lead-detail-client.tsx:1753-1771`.
-- PRD expects edit/preview/publish/share controls: `prd.md:254-270` and `prd.md:552-555`.
+- PRD expects edit/preview/publish/share controls: `docs/genesis/prd.md:254-270` and `docs/genesis/prd.md:552-555`.
 
 Requirement:
 
@@ -420,7 +420,7 @@ Before public launch, add unpublish/revoke, preview versus published state, owne
 Evidence:
 
 - README says the app uses official Google Places API and does not store/display review text: `README.md:166-178`.
-- PRD says no automated outbound delivery in MVP: `prd.md:41-47`.
+- PRD says no automated outbound delivery in MVP: `docs/genesis/prd.md:41-47`.
 - There is no visible public privacy/terms/support/data-source page in the route map.
 
 Requirement:

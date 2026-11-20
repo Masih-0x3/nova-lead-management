@@ -1,4 +1,4 @@
-# NoSite Leads Whole-Application Remediation Plan
+# Nova Lead Management Whole-Application Remediation Plan
 
 ## Planner Metadata
 
@@ -24,7 +24,7 @@ Make the current invite-only operator application reliable and maintainable end 
 - Displaced paths: duplicated client-side lead/worker/artifact/settings interfaces are replaced by browser-safe canonical types; ad hoc status and dialog implementations are replaced by shared primitives.
 - Cutover: one slice at a time with focused tests; old paths are removed in the same patch.
 - Acceptance evidence: focused failure-first tests, full Node 24 validation, real local routes/screenshots, safe live read-only checks, and an owner-style acceptance review.
-- Evidence lane: `.implementation/whole-app-remediation-ledger.jsonl` plus command/browser receipts.
+- Evidence lane: `docs/genesis/implementation/whole-app-remediation-ledger.jsonl` plus command/browser receipts.
 - Kill criteria: stop a slice if it needs live mutation, paid provider calls, credential creation, destructive schema changes, or a second authoritative data path.
 - Forbidden moves: weakening auth/types/tests, blanket migration push, production worker enablement, fake E2E success, storing Google review text, or patching generated output as source.
 

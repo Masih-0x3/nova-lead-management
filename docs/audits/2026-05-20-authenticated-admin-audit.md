@@ -1,4 +1,4 @@
-# NoSite Leads Authenticated Admin Audit
+# Nova Lead Management Authenticated Admin Audit
 
 Date: 2026-05-20  
 Auditor stance: external auditing firm, safe authenticated testing  

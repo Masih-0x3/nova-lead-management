@@ -12,9 +12,9 @@ This is a product, security, and data-lifecycle decision. It does not authorize 
 
 ## 1. Decision summary
 
-Nova Trade will launch with **invite-only, operator-controlled tenant provisioning**.
+Nova Lead Management will launch with **invite-only, operator-controlled tenant provisioning**.
 
-- An authorized Nova Trade platform operator creates a pending tenant from an operator-reviewed provisioning request.
+- An authorized Nova Lead Management platform operator creates a pending tenant from an operator-reviewed provisioning request.
 - The operator nominates one initial owner identity. The initial owner receives a tenant-bound invitation and must authenticate with the invited identity, verify that identity through the configured Auth flow, and explicitly accept the invitation.
 - The server creates and activates tenant membership and the owner role only after the acceptance transaction durably establishes every required invariant.
 - A tenant becomes `active` only after the initial owner membership, owner role binding, baseline policy, initial workspace state, and audit record are durable.
@@ -307,7 +307,7 @@ No migration, data backfill, Auth enrollment, remote database action, production
 
 ### 14.1 Specialty chemicals
 
-**Apex Materials** sells metalworking-fluid component packages and epoxy resins. A Nova Trade operator creates a pending tenant for Apex and nominates its verified commercial owner. The owner accepts the tenant invitation; the tenant becomes active with a default workspace such as `North America Industrial` only after the activation transaction commits.
+**Apex Materials** sells metalworking-fluid component packages and epoxy resins. A Nova Lead Management operator creates a pending tenant for Apex and nominates its verified commercial owner. The owner accepts the tenant invitation; the tenant becomes active with a default workspace such as `North America Industrial` only after the activation transaction commits.
 
 After activation, Apex may create a second workspace for distribution if policy permits. Its tenant-wide documents include product PDFs, data sheets, safety/certification material, catalogs, authorized websites, notes, and customer lists. Lead plays may target fluid formulators, coatings makers, flooring/civil-engineering suppliers, adhesives/composites manufacturers, pipe manufacturers, and distributors. Those plays and discovery runs may be workspace-scoped, while canonical accounts, documents, contacts, suppressions, and evidence remain tenant-owned. A duplicate distributor name in another tenant does not make the tenants the same organization, and no legacy Google Places record is silently assigned to Apex.
 

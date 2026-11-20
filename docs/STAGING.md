@@ -84,7 +84,7 @@ ephemeral, uniquely named, and torn down by the same process that started it.
 
 ## CI
 
-`.github/workflows/ci.yml` runs `staging-rehearsal` on `ubuntu-latest` with
+`.github/workflows/ci.yml` runs `staging-rehearsal` on `ubuntu-24.04` with
 `environment: staging`: Node 24, `npm ci`, Playwright Chromium, the selftest,
 the independent preservation tests, then `rehearse`. It runs only after all
 five prerequisite jobs succeed: the release gate, disposable schema suites,

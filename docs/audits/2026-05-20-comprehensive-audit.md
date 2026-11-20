@@ -1,4 +1,4 @@
-# NoSite Leads Comprehensive Audit
+# Nova Lead Management Comprehensive Audit
 
 > Superseded: the admin credentials were later corrected and a new authenticated audit was completed in `docs/audits/2026-05-20-authenticated-admin-audit.md`.
 

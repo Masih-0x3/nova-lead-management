@@ -1,4 +1,4 @@
-# Nova Trade Multi-Tenant Lead Intelligence Platform Implementation Plan
+# Nova Lead Management Multi-Tenant Lead Intelligence Platform Implementation Plan
 
 > **ARCHIVED — NOT ACTIVE.** No instruction below governs current execution. Use
 > [`2026-08-29-lean-finish-plan.md`](./2026-08-29-lean-finish-plan.md) for the active
@@ -20,7 +20,7 @@
 
 ## Executive goal
 
-Implement the PRD through small, independently assignable tasks that a low-capability model can complete without rediscovering architecture or inventing policy. The plan changes Nova Trade's durable product boundary from one internal, Google-Places-and-website-centered lead workflow to a tenant-isolated platform for business-material ingestion, adaptive understanding, ICPs and lead plays, compliant discovery, account and buying-center intelligence, evidence-backed qualification, human-approved outreach drafts, and outcome learning.
+Implement the PRD through small, independently assignable tasks that a low-capability model can complete without rediscovering architecture or inventing policy. The plan changes Nova Lead Management's durable product boundary from one internal, Google-Places-and-website-centered lead workflow to a tenant-isolated platform for business-material ingestion, adaptive understanding, ICPs and lead plays, compliant discovery, account and buying-center intelligence, evidence-backed qualification, human-approved outreach drafts, and outcome learning.
 
 This is a dependency-ordered implementation backlog, not authorization to implement, deploy, migrate production, call paid providers, or send outreach.
 
@@ -42,7 +42,7 @@ This is a dependency-ordered implementation backlog, not authorization to implem
 
 - **Codex Native baseline risk:** A flat feature list would leave weaker agents to invent schema, sequence, policy, and verification.
 - **What this plan does better:** Anchors the live worktree; isolates human decisions; defines atomic task cards, dependencies, file boundaries, validation evidence, stop rules, migration/cutover, and an implementation-orchestrator handoff.
-- **User-specific context used:** Windows/PowerShell worktree, Node 24 release gate, current independent Nova Trade repository, preference for end-to-end ownership, and explicit desire to use many cheaper models one task at a time.
+- **User-specific context used:** Windows/PowerShell worktree, Node 24 release gate, current independent Nova Lead Management repository, preference for end-to-end ownership, and explicit desire to use many cheaper models one task at a time.
 - **Superiority score target:** 5/5.
 - **Proof artifacts:** This saved plan, orchestration receipt, worker-lane synthesis, task dependency index, verification matrix, and closeout receipt.
 
@@ -3179,11 +3179,11 @@ The remaining sections contain implementation tasks. IDs are stable; do not renu
 
 ### Q-017 — Test approval and outreach guardrails
 
-- **Purpose:** Prove Nova Trade supports preparation and controlled handoff without autonomous sending.
+- **Purpose:** Prove Nova Lead Management supports preparation and controlled handoff without autonomous sending.
 - **Dependencies:** O-024, UI-033, Q-005.
 - **Likely files:** Outreach policy unit tests, approval action tests, E2E specs.
 - **Steps:** Test prohibited/missing citations, disputed facts, stale data, opt-out/do-not-contact, regional policy, frequency cap, duplicate recipient, invalid address, role permission, approval expiry, content mutation after approval, copy/export, and attempted send/API bypass; inspect audit and suppression effects.
-- **Success criteria:** No unapproved or policy-failing draft reaches export/copy; no Nova Trade endpoint sends communication; approved artifact invalidates after material change.
+- **Success criteria:** No unapproved or policy-failing draft reaches export/copy; no Nova Lead Management endpoint sends communication; approved artifact invalidates after material change.
 - **Validation/evidence:** Guardrail matrix, negative route tests, E2E traces, and outbound-network assertion.
 - **Stop/escalate:** Any automatic-send capability or suppression bypass is a release blocker.
 
@@ -3421,7 +3421,7 @@ The remaining sections contain implementation tasks. IDs are stable; do not renu
 
 The implementation is acceptable only when all criteria below are demonstrably true for the approved launch scope:
 
-1. Existing useful Nova Trade capabilities are preserved through explicit compatibility contracts, while local-site, Google-Places-first, `leads`, synchronous-workflow, and global-settings assumptions are generalized or isolated behind adapters.
+1. Existing useful Nova Lead Management capabilities are preserved through explicit compatibility contracts, while local-site, Google-Places-first, `leads`, synchronous-workflow, and global-settings assumptions are generalized or isolated behind adapters.
 2. Every tenant-owned read, write, job, cache key, search/retrieval operation, export, deletion, audit query, and administrative action has fail-closed tenant and workspace boundaries.
 3. The deployed Postgres runtime uses a verified non-owner, non-`BYPASSRLS` application role and transaction-local tenant context; real-Postgres tests prove pooled-connection safety.
 4. Arbitrary approved business materials can be ingested safely, versioned, quarantined, deleted, and traced to stable evidence anchors without silently promoting unsupported extraction.
@@ -3430,7 +3430,7 @@ The implementation is acceptable only when all criteria below are demonstrably t
 7. Sources are governed connectors with declared terms, ownership, fields, provenance, cost, retention, geography, limits, health, and kill behavior. Google Places is one connector, not the canonical domain.
 8. Candidate observations never become canonical accounts without resolution/provenance logic; manual merge/split and evidence correction remain auditable and reversible where defined.
 9. Scores expose dimensions, evidence, uncertainty, conflicts, policy/version, and explanation; missing evidence cannot masquerade as a negative fact or increase confidence.
-10. Human approval is required before any outreach artifact leaves the product; Nova Trade performs no autonomous sending in launch scope; suppression, consent, regional policy, frequency, and prohibited-claim checks fail closed.
+10. Human approval is required before any outreach artifact leaves the product; Nova Lead Management performs no autonomous sending in launch scope; suppression, consent, regional policy, frequency, and prohibited-claim checks fail closed.
 11. Role permissions are enforced server-side and match UI affordances; support access is scoped, reasoned, approved, time-bound, revocable, and audited.
 12. Export, deletion, retention, legal-hold, audit, and backup behavior matches approved policy and is verified on disposable data before production use.
 13. Critical journeys meet approved accessibility, performance, reliability, recovery, observability, cost, and operational-readiness targets with retained evidence.

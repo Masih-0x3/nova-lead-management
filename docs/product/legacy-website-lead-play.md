@@ -8,7 +8,7 @@ Focused contract tests: `src/lib/__tests__/compatibility-play.test.ts`
 
 ## Purpose and boundary
 
-Nova Trade's current local-business website-lead workflow is preserved as one explicit, versioned compatibility play while the platform evolves toward tenant-configurable ICPs and lead plays. The compatibility play describes current behavior; it does not make local businesses, Google Places, website gaps, Colorado-style geography, or the current scoring model a platform-wide default.
+Nova Lead Management's current local-business website-lead workflow is preserved as one explicit, versioned compatibility play while the platform evolves toward tenant-configurable ICPs and lead plays. The compatibility play describes current behavior; it does not make local businesses, Google Places, website gaps, Colorado-style geography, or the current scoring model a platform-wide default.
 
 The in-code record is deliberately a pure interim adapter. Creating or parsing it performs no database write, source call, AI call, export, copy, or outreach action. Binding requires the exact tenant and workspace from a completed T-028 compatibility-backfill receipt whose manifest hash, source engine, checksum algorithm, identity, policy, and zero-orphan state all reconcile. There is no hard-coded real tenant or workspace ID.
 
@@ -85,7 +85,7 @@ Artifact states are `queued`, `running`, `complete`, and `error`; the retry-read
 
 ### Legacy lifecycle interpretation
 
-The existing lead states remain intact, but none is treated as proof of a Nova Trade transport action:
+The existing lead states remain intact, but none is treated as proof of a Nova Lead Management transport action:
 
 | Current state | Compatibility interpretation |
 |---|---|

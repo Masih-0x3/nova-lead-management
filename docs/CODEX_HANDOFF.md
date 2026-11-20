@@ -1,4 +1,4 @@
-# Nova Trade Agent Handoff
+# Nova Lead Management Agent Handoff
 
 Current as of September 16, 2026. This file and the [lean finish plan](plans/2026-08-29-lean-finish-plan.md) replace the historical June/July task queue. The old 318-card plan is reference material, not a backlog to restart.
 

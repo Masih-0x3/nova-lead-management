@@ -1,4 +1,4 @@
-# Nova Trade AI-Data Policy (Task D-009)
+# Nova Lead Management AI-Data Policy (Task D-009)
 
 **Task:** D-009 - Approve model/provider and tenant-data-use policy
 **Status:** Parent-conductor accepted local implementation contract; live provider use and production activation remain blocked pending the evidence in Section 4.
@@ -8,7 +8,7 @@
 
 ## 1) Purpose and production-safe default
 
-This policy moves Nova Trade from local-website-only behavior toward multi-tenant lead intelligence while keeping tenant-data execution fail-closed until approval evidence exists.
+This policy moves Nova Lead Management from local-website-only behavior toward multi-tenant lead intelligence while keeping tenant-data execution fail-closed until approval evidence exists.
 
 The policy intentionally does **not** treat current repository behavior as production approval. It defines execution constraints and required evidence so the adapter can be implemented and tested safely with fixtures before any tenant-data activation.
 

@@ -1,4 +1,4 @@
-# Nova Trade Launch RBAC and Authorization Matrix
+# Nova Lead Management Launch RBAC and Authorization Matrix
 
 **Decision:** D-002 — Approve launch roles and permission matrix
 
@@ -12,7 +12,7 @@
 
 **Implementation authority:** [`implementation-authority.md`](../decisions/implementation-authority.md)
 
-This document defines the launch authorization contract for Nova Trade's move from a single internal `admin`/`researcher` application to a tenant-scoped B2B lead-intelligence and human-approved outreach platform. It is a product and security design artifact. It does not claim legal approval for contact use, outreach, data processing, or any jurisdiction.
+This document defines the launch authorization contract for Nova Lead Management's move from a single internal `admin`/`researcher` application to a tenant-scoped B2B lead-intelligence and human-approved outreach platform. It is a product and security design artifact. It does not claim legal approval for contact use, outreach, data processing, or any jurisdiction.
 
 The matrix is intentionally fixed at launch. Custom roles and arbitrary permission bundles are deferred. The platform must deny by default, enforce authorization at the server/API/data boundary, and use the UI only as an affordance—not as a security control.
 
@@ -32,7 +32,7 @@ The tenant roles are:
 | `outreach_operator` | Outreach Operator | Uses approved account/contact context to prepare, review, copy, and record human-approved outreach outcomes. | Cannot send automatically, use suppressed contacts, approve its own draft, or create unsupported claims. |
 | `analyst_read_only` | Analyst / Read-only | Reads permitted tenant/workspace records and reports. | No mutations, approvals, exports, contact-use actions, or operational controls. Sensitive content remains policy-filtered. |
 
-`platform_support` is **not** a tenant role. A Nova Trade support actor can act for a tenant only through a separate, time-bound, reason-coded, audited support grant defined in Section 7. A support grant never creates a normal membership and never grants broad content visibility by implication.
+`platform_support` is **not** a tenant role. A Nova Lead Management support actor can act for a tenant only through a separate, time-bound, reason-coded, audited support grant defined in Section 7. A support grant never creates a normal membership and never grants broad content visibility by implication.
 
 ### 1.2 Non-negotiable defaults
 

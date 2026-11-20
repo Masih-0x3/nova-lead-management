@@ -12,7 +12,7 @@ This document defines the launch integration boundary for the product's next pha
 
 Launch posture:
 
-- Nova Trade remains system of record for lead intelligence research, evidence, plays, account resolution, qualification snapshots, approvals, suppression, outcomes, and audit.
+- Nova Lead Management remains system of record for lead intelligence research, evidence, plays, account resolution, qualification snapshots, approvals, suppression, outcomes, and audit.
 - No live bidirectional CRM sync.
 - No CRM credential storage.
 - No CRM webhooks.
@@ -36,7 +36,7 @@ This is the low-risk boundary used to preserve compatibility while removing unsa
 ### 2.2 Launch target state
 
 1. Export/import is **contract-based** and versioned.
-2. Canonical account intelligence and suppression are authoritative inside Nova Trade.
+2. Canonical account intelligence and suppression are authoritative inside Nova Lead Management.
 3. Copy/export artifacts are append-only records, never interpreted as delivery.
 4. Identity and suppression precedence are tenant-scoped and deterministic.
 5. Cross-tenant data is blocked at auth boundary and at import-time envelope checks.
@@ -88,7 +88,7 @@ Authorization and safety rules:
 
 ## 5. Launch boundary contract
 
-Nova Trade remains source of truth for:
+Nova Lead Management remains source of truth for:
 
 - Canonical accounts (tenant-wide).
 - Candidate observations.

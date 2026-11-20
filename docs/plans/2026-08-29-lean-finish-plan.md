@@ -1,4 +1,4 @@
-# Nova Trade Lean Finish Plan
+# Nova Lead Management Lean Finish Plan
 
 - **Status:** Current execution queue
 - **Updated:** 2026-09-16

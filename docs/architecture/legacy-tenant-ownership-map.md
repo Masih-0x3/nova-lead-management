@@ -2,7 +2,7 @@
 
 Status: G-001 architecture/security baseline for Phase 2.
 
-Scope: current Nova Trade tables and entry points only; proposed generalized domains are outside this inventory.
+Scope: current Nova Lead Management tables and entry points only; proposed generalized domains are outside this inventory.
 
 Reconciled on: 2026-07-29 against the active worktree.
 

@@ -1,4 +1,4 @@
-# Nova Trade Data Lifecycle, Export, Deletion, and Audit Policy
+# Nova Lead Management Data Lifecycle, Export, Deletion, and Audit Policy
 
 **Status:** Accepted local implementation contract; activation blockers remain
 **Decision:** D-014
@@ -8,7 +8,7 @@
 
 ## 1. Executive decision and status
 
-Nova Trade will use a tenant-scoped, purpose-limited, fail-closed lifecycle. Primary application deletion is authoritative for access and application-visible truth; deletion propagates to every derivative and storage surface through resumable checkpoints. Short-lived exports expire no later than seven days. Raw operational logs are retained for 30 days, raw connector/source observations for 180 days unless a shorter rule wins, and tenant business materials/approved derived knowledge while the tenant is active, subscribed, and authorized until supersession, tenant policy, or deletion. Verified primary deletion completes within 30 calendar days unless an active lawful hold blocks only its covered subset. Encrypted backups age out within 35 days after primary deletion, subject to documented provider limitations.
+Nova Lead Management will use a tenant-scoped, purpose-limited, fail-closed lifecycle. Primary application deletion is authoritative for access and application-visible truth; deletion propagates to every derivative and storage surface through resumable checkpoints. Short-lived exports expire no later than seven days. Raw operational logs are retained for 30 days, raw connector/source observations for 180 days unless a shorter rule wins, and tenant business materials/approved derived knowledge while the tenant is active, subscribed, and authorized until supersession, tenant policy, or deletion. Verified primary deletion completes within 30 calendar days unless an active lawful hold blocks only its covered subset. Encrypted backups age out within 35 days after primary deletion, subject to documented provider limitations.
 
 Content-minimized, non-reconstructive audit/protective tombstones have a seven-year default retention. They contain no raw content or contact points. The seven-year value is a protective default, not a claim about legal necessity; an approved lawful bound may require a different period.
 
@@ -35,7 +35,7 @@ This policy applies to tenant-owned business materials, research, source observa
 - **Receipt:** A durable, content-minimized record that a named store checkpoint was attempted and what verifiable result it produced. A request acknowledgment is not a deletion receipt.
 - **Tombstone:** A content-minimized record retained to prevent identity reuse and preserve security/accounting/audit truth. A tombstone is not a backup, archive, or access grant.
 - **Legal hold:** A separately authorized, reason-coded, scoped, reviewable instruction that pauses deletion only for covered records.
-- **Provider transient state:** Prompt, response, scanner, connector, or other data held outside Nova Trade during one approved operation. Provider retention, region, backup, and deletion facts are unknown until evidenced.
+- **Provider transient state:** Prompt, response, scanner, connector, or other data held outside Nova Lead Management during one approved operation. Provider retention, region, backup, and deletion facts are unknown until evidenced.
 
 ## 2. Core invariants
 
@@ -253,7 +253,7 @@ delete(scope, object_class, opaque_object_id, deletion_id, policy_version)
 
 The adapter contract must bind the request to tenant scope, object class, policy version, and deletion identity; accept `not_found` only when the application can establish that it is safe; and never treat a malformed or ambiguous response as deletion. The adapter records request and receipt metadata without raw content, credentials, or provider payload bodies.
 
-Provider region, retention, DPA, training/secondary-use, backup, replica, scanner-copy, and deletion facts are **unknown until evidenced** for the selected deployment and tenant/jurisdiction. A provider may accept a delete request while retaining encrypted backups or replicas under its own contract. Nova Trade therefore may state that it requested deletion and verified its application boundary; it may not claim immediate erasure from provider backups or provider systems without evidence.
+Provider region, retention, DPA, training/secondary-use, backup, replica, scanner-copy, and deletion facts are **unknown until evidenced** for the selected deployment and tenant/jurisdiction. A provider may accept a delete request while retaining encrypted backups or replicas under its own contract. Nova Lead Management therefore may state that it requested deletion and verified its application boundary; it may not claim immediate erasure from provider backups or provider systems without evidence.
 
 Transient provider outage or timeout yields `PENDING_RETRY` or `FAILED_PROVIDER_RESPONSE` according to retry policy and keeps the relevant scope inaccessible. An invalid receipt yields `FAILED_PROVIDER_RESPONSE`, not `deleted`. Bounded retry and escalation are required. Production activation is blocked until the adapter's region, retention, deletion, incident, and evidence contract is approved.
 

@@ -1,6 +1,6 @@
 # Vercel + Supabase Deployment Runbook
 
-This is the production operator reference for Nova Trade. It keeps the app invite-only and uses Supabase Auth/PostgreSQL. It does not authorize deployment or activate a design-partner cohort.
+This is the production operator reference for Nova Lead Management. It keeps the app invite-only and uses Supabase Auth/PostgreSQL. It does not authorize deployment or activate a design-partner cohort.
 
 ## Current release boundary (September 2026)
 
@@ -130,7 +130,7 @@ After applying migrations, verify at minimum:
 - `202606160001_launch_readiness_reliability.sql` has run, adding enrichment lease fields and demo lifecycle fields;
 - `worker_cron_secret` and `worker_base_url` exist in Supabase Vault before
   applying scheduler cron migrations;
-- `cron.job` contains the expected NoSite worker jobs;
+- `cron.job` contains the expected Nova Lead Management worker jobs;
 - the Scheduler page reports the same worker set as `src/lib/scheduler/worker-metadata.ts`.
 
 ## 3. Migrate Local Data
