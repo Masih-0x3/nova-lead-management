@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -126,9 +126,11 @@ export function KanbanClient({ leads, total, displayLimit, scoreThresholds, busi
   const [exclusionError, setExclusionError] = useState<string | null>(null);
   const [exclusionBusy, setExclusionBusy] = useState(false);
 
-  useEffect(() => {
+  const [prevGrouped, setPrevGrouped] = useState(groupedFromServer);
+  if (prevGrouped !== groupedFromServer) {
+    setPrevGrouped(groupedFromServer);
     setColumns(groupedFromServer);
-  }, [groupedFromServer]);
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

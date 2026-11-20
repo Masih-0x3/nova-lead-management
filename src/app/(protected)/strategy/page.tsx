@@ -53,6 +53,23 @@ export default async function StrategyPage(props: {
   const scope = { tenantId: session.tenantId, workspaceId: session.workspaceId };
   const deps = { correlationId: `l07:strategy:${randomUUID()}` };
 
+  type StrategyData = Readonly<{
+    approvedUnderstanding: UnderstandingVersionView | null;
+    claimOptions: readonly UnderstandingClaimOption[];
+    selectedIcp: IcpVersionView | null;
+    selectedPlay: LeadPlayVersionView | null;
+    approvedIcp: IcpVersionView | null;
+    playDetail: Awaited<ReturnType<typeof loadPlayDetail>>;
+    capabilities: Readonly<{
+      icpEdit: boolean;
+      icpApprove: boolean;
+      playEdit: boolean;
+      playApprove: boolean;
+      playActivate: boolean;
+    }>;
+    summaries: StrategyPortfolioSummary[];
+  }>;
+  let data: { ok: true; value: StrategyData } | { ok: false; denied: boolean };
   try {
     const [understanding, icps, plays] = await Promise.all([
       listAuthenticatedUnderstandingVersions(scope, deps),
@@ -60,40 +77,72 @@ export default async function StrategyPage(props: {
       listAuthenticatedLeadPlayVersions(scope, deps),
     ]);
     if (!understanding.ok || !icps.ok || !plays.ok) {
-      return (
-        <SurfaceNotice
-          route="/strategy"
-          title="Strategy"
-          description="ICP and lead-play versions bound to the approved understanding."
-          kind="error"
-        />
-      );
+      data = { ok: false, denied: false };
+    } else {
+      const approvedUnderstanding = pickApprovedUnderstanding(understanding.value);
+      const claimOptions = approvedUnderstanding ? claimCatalog(approvedUnderstanding) : [];
+      const selectedIcp = icps.value.find((view) => view.proposal.versionId === selectedIcpId) ?? null;
+      const selectedPlay = plays.value.find((view) => view.proposal.versionId === selectedPlayId) ?? null;
+      const approvedIcp = [...icps.value]
+        .filter((view) => view.proposal.review.status === "approved")
+        .sort((left, right) => right.proposal.revision - left.proposal.revision)[0] ?? null;
+
+      const playDetail = selectedPlay ? await loadPlayDetail(scope, selectedPlay, deps) : null;
+
+      const capabilities = {
+        icpEdit: isTenantRoleCapable(session.role, "icp:edit"),
+        icpApprove: isTenantRoleCapable(session.role, "icp:approve"),
+        playEdit: isTenantRoleCapable(session.role, "play:edit"),
+        playApprove: isTenantRoleCapable(session.role, "play:approve"),
+        playActivate: isTenantRoleCapable(session.role, "play:activate"),
+      };
+
+      const summaries = [
+        ...icps.value.map((view) => toIcpSummary(view, capabilities)),
+        ...plays.value.map((view) => toPlaySummary(view, capabilities)),
+      ];
+
+      data = {
+        ok: true,
+        value: {
+          approvedUnderstanding,
+          claimOptions,
+          selectedIcp,
+          selectedPlay,
+          approvedIcp,
+          playDetail,
+          capabilities,
+          summaries,
+        },
+      };
     }
+  } catch (error) {
+    data = { ok: false, denied: error instanceof TenantAuthorizationError };
+  }
 
-    const approvedUnderstanding = pickApprovedUnderstanding(understanding.value);
-    const claimOptions = approvedUnderstanding ? claimCatalog(approvedUnderstanding) : [];
-    const selectedIcp = icps.value.find((view) => view.proposal.versionId === selectedIcpId) ?? null;
-    const selectedPlay = plays.value.find((view) => view.proposal.versionId === selectedPlayId) ?? null;
-    const approvedIcp = [...icps.value]
-      .filter((view) => view.proposal.review.status === "approved")
-      .sort((left, right) => right.proposal.revision - left.proposal.revision)[0] ?? null;
-
-    const playDetail = selectedPlay ? await loadPlayDetail(scope, selectedPlay, deps) : null;
-
-    const capabilities = {
-      icpEdit: isTenantRoleCapable(session.role, "icp:edit"),
-      icpApprove: isTenantRoleCapable(session.role, "icp:approve"),
-      playEdit: isTenantRoleCapable(session.role, "play:edit"),
-      playApprove: isTenantRoleCapable(session.role, "play:approve"),
-      playActivate: isTenantRoleCapable(session.role, "play:activate"),
-    };
-
-    const summaries = [
-      ...icps.value.map((view) => toIcpSummary(view, capabilities)),
-      ...plays.value.map((view) => toPlaySummary(view, capabilities)),
-    ];
-
+  if (!data.ok) {
     return (
+      <SurfaceNotice
+        route="/strategy"
+        title="Strategy"
+        description="ICP and lead-play versions bound to the approved understanding."
+        kind={data.denied ? "denied" : "error"}
+      />
+    );
+  }
+
+  const {
+    approvedUnderstanding,
+    claimOptions,
+    selectedIcp,
+    selectedPlay,
+    approvedIcp,
+    playDetail,
+    capabilities,
+    summaries,
+  } = data.value;
+
+  return (
       <PageShell
         title="Strategy"
         description="ICP and lead-play versions, review, simulation, and activation — all bound to the approved understanding."
@@ -119,17 +168,7 @@ export default async function StrategyPage(props: {
           playActivation={playDetail?.activation ?? null}
         />
       </PageShell>
-    );
-  } catch (error) {
-    return (
-      <SurfaceNotice
-        route="/strategy"
-        title="Strategy"
-        description="ICP and lead-play versions bound to the approved understanding."
-        kind={error instanceof TenantAuthorizationError ? "denied" : "error"}
-      />
-    );
-  }
+  );
 }
 
 type StrategyDeps = Readonly<{ correlationId: string }>;
